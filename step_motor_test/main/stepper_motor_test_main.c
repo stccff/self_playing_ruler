@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Unlicense OR CC0-1.0
  */
 
+#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/rmt_tx.h"
@@ -11,6 +12,10 @@
 #include "esp_log.h"
 #include "stepper_motor_encoder.h"
 #include "math.h"
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "sdkconfig.h"
+
 
 ///////////////////////////////Change the following configurations according to your board//////////////////////////////
 #define STEP_MOTOR_GPIO_EN       0
@@ -27,15 +32,53 @@
 
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
 
-#define MODE 2 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+#define MODE 5 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
 #define SAMPLE_POINTS 500
 #define SPEED_HZ (500 * pow(2, MODE))
 
+// uart configurations
+#define ECHO_TEST_TXD (43)
+#define ECHO_TEST_RXD (44)
 
-static const char *TAG = "example";
+#define ECHO_UART_PORT_NUM      0
+#define ECHO_UART_BAUD_RATE     115200
+
+
+static const char *TAG = "step motor test";
+
+
+#define BUF_SIZE (1024)
+
+
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "Initialize UART");
+    /* Configure parameters of an UART driver,
+    * communication pins and install the driver */
+    uart_config_t uart_config = {
+        .baud_rate = ECHO_UART_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    int intr_alloc_flags = 0;
+
+#if CONFIG_UART_ISR_IN_IRAM
+    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+#endif
+
+    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+    ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
+    ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, UART_PIN_NO_CHANGE, ECHO_TEST_RXD, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+
+    // Configure a temporary buffer for the incoming data
+    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+
+
+    ESP_LOGI(TAG, "Initialize  step motor");
     ESP_LOGI(TAG, "Initialize EN + DIR GPIO");
     gpio_config_t en_dir_gpio_config = {
         .mode = GPIO_MODE_OUTPUT,
@@ -102,33 +145,36 @@ void app_main(void)
         .loop_count = 0,
     };
 
-    const static uint32_t accel_samples = SAMPLE_POINTS;
     const static uint32_t uniform_speed_hz = SPEED_HZ;
-    const static uint32_t decel_samples = SAMPLE_POINTS;
 
-    uint32_t dir = 0;
+    int total_len = 0;
     while (1) {
-        gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
+        // Read data from the UART
+        int len = uart_read_bytes(ECHO_UART_PORT_NUM, &data[total_len], (BUF_SIZE - total_len - 1), 20 / portTICK_PERIOD_MS);
+        if (len > 0) {
+            total_len += len;
+            if (data[total_len - 1] != '\n' && data[total_len - 1] != '\r') {
+                continue;
+            } else {
+                data[total_len] = '\0';
+                total_len = 0;
+            }
+            
+            int step = 0;
+            sscanf((char *)data, "%d", &step);
+            ESP_LOGI(TAG, "step = %d", step);
 
-        // acceleration phase
-        // tx_config.loop_count = 0;
-        // ESP_ERROR_CHECK(rmt_transmit(motor_chan, accel_motor_encoder, &accel_samples, sizeof(accel_samples), &tx_config));
-
-        // uniform phase
-        tx_config.loop_count = 250 * pow(2, MODE);
-        ESP_ERROR_CHECK(rmt_transmit(motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
-
-        // deceleration phase
-        // tx_config.loop_count = 0;
-        // ESP_ERROR_CHECK(rmt_transmit(motor_chan, decel_motor_encoder, &decel_samples, sizeof(decel_samples), &tx_config));
-        // wait all transactions finished
-        ESP_ERROR_CHECK(rmt_tx_wait_all_done(motor_chan, -1));
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-        gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
-        vTaskDelay(pdMS_TO_TICKS(900));
-
-        dir = (dir == 0) ? 1 : 0;   // change direction
-        gpio_set_level(STEP_MOTOR_GPIO_DIR, dir);
+            // uniform phase
+            gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
+            
+            gpio_set_level(STEP_MOTOR_GPIO_DIR, (step > 0) ? 1 : 0); // set direction
+            tx_config.loop_count = abs(step) * pow(2, MODE);
+            ESP_ERROR_CHECK(rmt_transmit(motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
+            ESP_ERROR_CHECK(rmt_tx_wait_all_done(motor_chan, -1));
+            
+            vTaskDelay(pdMS_TO_TICKS(100));
+            gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
+        }
     }
 }
+

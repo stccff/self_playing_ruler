@@ -27,14 +27,14 @@
 #define STEP_MOTOR_MODE2_PIN    42
 
 #define STEP_MOTOR_ENABLE_LEVEL  0 // DRV8825 is enabled on low level
-#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
+#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
 #define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
 
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
 
-#define MODE 5 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
 #define SAMPLE_POINTS 500
-#define SPEED_HZ (500 * pow(2, MODE))
+#define SPEED_HZ (100 * pow(2, MODE))
 
 // uart configurations
 #define ECHO_TEST_TXD (43)
@@ -167,8 +167,8 @@ void app_main(void)
             // uniform phase
             gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
             
-            gpio_set_level(STEP_MOTOR_GPIO_DIR, (step > 0) ? 1 : 0); // set direction
-            tx_config.loop_count = abs(step) * pow(2, MODE);
+            gpio_set_level(STEP_MOTOR_GPIO_DIR, (step > 0) ? STEP_MOTOR_SPIN_DIR_CLOCKWISE : STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE); // set direction
+            tx_config.loop_count = abs(step);
             ESP_ERROR_CHECK(rmt_transmit(motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
             ESP_ERROR_CHECK(rmt_tx_wait_all_done(motor_chan, -1));
             

@@ -16,6 +16,9 @@
 /* ***************************************************************************************************************** */
 /*                                                 宏定义                                                            */
 /* ***************************************************************************************************************** */
+
+#define POW(x, y) ((y == 0) ? 1 : pow(x, y))
+
 #define STEP_MOTOR_GPIO_EN 0
 #define STEP_MOTOR_GPIO_DIR 2
 #define STEP_MOTOR_GPIO_STEP 4
@@ -30,10 +33,26 @@
 
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
 
-#define MODE 3 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+#define MODE 0 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
 #define SAMPLE_POINTS 500
-#define SPEED_HZ (800 * pow(2, MODE))
-#define MAX_FULL_STEP 300
+#define SPEED_HZ (500 * POW(2, MODE))
+
+#define LEN_PER_FULL_STEP 0.15 // mm
+#define MAX_FULL_STEP 296
+#define LEN_PER_STEP (LEN_PER_FULL_STEP / POW(2, MODE))
+#define MAX_STEP (MAX_FULL_STEP * POW(2, MODE))
+#define LEAD_SCREW_BACKLASH (2 * POW(2, MODE)) // step
+
+// ruler features
+#define RULER_LENGHT_MIN 13.5   // mm 13.7?
+#define RULER_LENGTH_MAX 58     // mm
+
+#define RULER_FREQ_MIN 73.42    // ≈55.80mm
+#define RULER_FREQ_MAX 349.23   // ≈25.61mm
+
+/* formula f=k/(L^2), L=(k/f)^(1/2) */
+#define k 229049.0652
+
 
 /* ***************************************************************************************************************** */
 /*                                                 结构体定义                                                         */
@@ -44,6 +63,63 @@
 /* ***************************************************************************************************************** */
 static const char *TAG = "step_motor";
 TaskHandle_t g_step_motor_task_handle = NULL;
+int g_curr_pos;
+rmt_channel_handle_t g_motor_chan = NULL;
+/* ***************************************************************************************************************** */
+/*                                           function prototype                                                      */
+/* ***************************************************************************************************************** */
+
+static double convert_len_to_freq(double len)
+{
+    return k / POW(len, 2);
+}
+
+static double convert_freq_to_len(double freq)
+{
+    return sqrt(k / freq);
+}
+
+static int convert_len_to_pos(double len)
+{
+    if (len < RULER_LENGHT_MIN || len > RULER_LENGTH_MAX) {
+        ESP_LOGE(TAG, "Invalid length: %f", len);
+        return -1;
+    }
+    return (int)((len - RULER_LENGHT_MIN) / (RULER_LENGTH_MAX - RULER_LENGHT_MIN) * MAX_STEP);
+}
+
+static int convert_len_to_step(double len)
+{
+    int pos = convert_len_to_pos(len);
+    if (pos < 0) {
+        return 0; // do not set step
+    }
+    int step = pos - g_curr_pos;
+    g_curr_pos = pos;
+    return step;
+}
+
+// static int convert_note_to_pos(char *note)
+// {
+//     // note-->midi
+
+//     // midi-->frequency
+//     // double freq = g_midi_freq[midi];
+
+
+
+//     //frequency-->length
+//     double length = sqrt(k / freq);
+//     ESP_LOGI(TAG, "midi =%d, freq = %f, length = %f", midi, freq, length);
+//     //length-->pos
+//     if (length < LENGHT_MIN) {
+//         ESP_ERROR_CHECK(ESP_FAIL);
+//     }
+//     int pos = (int)((length - LENGHT_MIN) / TOTAL_LENGTH * TOTAL_POS);
+
+//     return pos;
+// }
+
 
 
 void step_motor_task(void *arg)
@@ -59,7 +135,7 @@ void step_motor_task(void *arg)
     ESP_ERROR_CHECK(gpio_config(&en_dir_gpio_config));
 
     ESP_LOGI(TAG, "Create RMT TX channel");
-    rmt_channel_handle_t motor_chan = NULL;
+    // rmt_channel_handle_t g_motor_chan = NULL;
     rmt_tx_channel_config_t tx_chan_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT, // select clock source
         .gpio_num = STEP_MOTOR_GPIO_STEP,
@@ -67,7 +143,7 @@ void step_motor_task(void *arg)
         .resolution_hz = STEP_MOTOR_RESOLUTION_HZ,
         .trans_queue_depth = 10, // set the number of transactions that can be pending in the background
     };
-    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, &motor_chan));
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_chan_config, &g_motor_chan));
 
     ESP_LOGI(TAG, "Set spin direction");
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
@@ -105,7 +181,7 @@ void step_motor_task(void *arg)
     // ESP_ERROR_CHECK(rmt_new_stepper_motor_curve_encoder(&decel_encoder_config, &decel_motor_encoder));
 
     ESP_LOGI(TAG, "Enable RMT channel");
-    ESP_ERROR_CHECK(rmt_enable(motor_chan));
+    ESP_ERROR_CHECK(rmt_enable(g_motor_chan));
 
     ESP_LOGI(TAG, "Spin motor for 6000 steps: 500 accel + 5000 uniform + 500 decel");
     rmt_transmit_config_t tx_config = {
@@ -118,45 +194,55 @@ void step_motor_task(void *arg)
 
     /* 位置归零 */
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE); // set direction
-    tx_config.loop_count = MAX_FULL_STEP * pow(2, MODE);
-    ESP_ERROR_CHECK(rmt_transmit(motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
-    ESP_ERROR_CHECK(rmt_tx_wait_all_done(motor_chan, -1));
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    tx_config.loop_count = MAX_STEP + 10 * POW(2, MODE);
+    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+
+
+    tx_config.loop_count = MAX_STEP / 2;
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
+    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
+    vTaskDelay(10 / portTICK_PERIOD_MS);
 
     gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
 
-    xTaskNotify(get_step_motor_task_handle(), (uint32_t)150, eSetValueWithOverwrite);
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    // init current position
+    g_curr_pos = MAX_STEP / 2;
 
-
-    int pos = 0;
-    int curr_pos = 0;
-    int step = 0;
-    int last_dir = STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
+    int last_dir = STEP_MOTOR_SPIN_DIR_CLOCKWISE;
     while (1) {
-        // wait for direction and step
-        
-        BaseType_t rc = xTaskNotifyWait(0, 0, &pos, pdMS_TO_TICKS(1000));
+        /* wait for receiving frequency */
+        float freq;
+        BaseType_t rc = xTaskNotifyWait(0, 0, (uint32_t*)&freq, pdMS_TO_TICKS(1000));
         if (rc == pdFALSE) {
             continue;
         }
-        if (pos > MAX_FULL_STEP || pos < 0) {
-            ESP_LOGE(TAG, "Invalid step: %d", step);
+        if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
+            ESP_LOGE(TAG, "Invalid frequency: %f", freq);
             continue;
         }
-        step = pos - curr_pos;
-        curr_pos = pos;
-        tx_config.loop_count = abs(step) * pow(2, MODE);
+        /* get motor step */
+        // freq --> length
+        double len = convert_freq_to_len(freq);
+        // absolute length --> relative step
+        int step = convert_len_to_step(len);
+        if (step == 0) {
+            continue;
+        }
+        tx_config.loop_count = abs(step);
         gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
         int dir = (step > 0) ? STEP_MOTOR_SPIN_DIR_CLOCKWISE : STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
-        // 如方向改变，旷量补偿
-        if (last_dir != dir && step != 0) {
-            tx_config.loop_count += 2 * pow(2, MODE);
+        // If the direction changes, compensate for backlash
+        if (last_dir != dir) {
+            tx_config.loop_count += LEAD_SCREW_BACKLASH;
         }
         last_dir = dir;
         gpio_set_level(STEP_MOTOR_GPIO_DIR, dir); // set direction
-        ESP_ERROR_CHECK(rmt_transmit(motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
-        ESP_ERROR_CHECK(rmt_tx_wait_all_done(motor_chan, -1));
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &tx_config));
+        ESP_LOGI(TAG, "step = %d, freq = %f, len = %f", step, freq, len);
+        ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
         vTaskDelay(10 / portTICK_PERIOD_MS);
         gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
     }
@@ -170,5 +256,10 @@ void step_motor_init(void)
 TaskHandle_t get_step_motor_task_handle(void)
 {
     return g_step_motor_task_handle;
+}
+
+void wait_motor_done(void)
+{
+    rmt_tx_wait_all_done(g_motor_chan, -1);
 }
 

@@ -1,8 +1,9 @@
 import serial
 import time
+import threading
 
 
-# 音高与延时数据列表
+# List of pitch and delay data
 data_list = [
     ("6", 0.5), 
     ("1.", 0.5),
@@ -50,23 +51,43 @@ data_list = [
     (" ", 3)
 ]
 
-speed = 650
+# speed = 650
+speed = 1000
+base = 40
+scale = 0
 
-def send_serial_data(data_list, port='COM4', baudrate=115200):
+def handle_serial_communication(data_list, port='COM4', baudrate=115200):
     try:
         with serial.Serial(port, baudrate, timeout=1) as ser:
+            print("Serial port opened, starting communication...")
+
+            # Create a thread to read serial data
+            def read_serial_data():
+                print("Starting to read serial data...")
+                while True:
+                    if ser.in_waiting > 0:
+                        data = ser.readline().decode('ascii').strip()
+                        print(f"[Received] {data}")
+
+            read_thread = threading.Thread(target=read_serial_data, daemon=True)
+            read_thread.start()
+
+            # Send data
+            ser.write(("set %d %d\n" % (base, scale)).encode('ascii'))
             for text, delay in data_list:
-                if text.strip() == '':  # 空格或空字符串仅延时
-                    print(f"[延时] {delay}")
+                if text.strip() == '':  # Space or empty string for delay only
+                    print(f"[Delay] {delay}")
                     time.sleep(delay * speed / 1000)
                 else:
-                    ser.write((text + '\n').encode('ascii'))
-                    print(f"[发送] '{text}' 后延时 {delay}")
+                    ser.write(('p ' + text + '\n').encode('ascii'))
+                    print(f"[Send] '{text}' with delay {delay}")
                     time.sleep(delay * speed / 1000)
-            print("所有数据发送完成！")
-    except serial.SerialException as e:
-        print(f"串口连接失败: {e}")
-    except Exception as e:
-        print(f"运行时错误: {e}")
+            print("All data Sent!")
 
-send_serial_data(data_list)  # 使用默认COM4和115200波特率
+    except serial.SerialException as e:
+        print(f"Serial connection failed: {e}")
+    except Exception as e:
+        print(f"Runtime error: {e}")
+
+# Start serial communication
+handle_serial_communication(data_list)

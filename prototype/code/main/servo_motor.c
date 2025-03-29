@@ -4,23 +4,26 @@
 #include "esp_log.h"
 #include "driver/mcpwm_prelude.h"
 
-
 /* ***************************************************************************************************************** */
 /*                                                 宏定义                                                            */
 /* ***************************************************************************************************************** */
 // Please consult the datasheet of your servo before changing the following parameters
 #define SERVO_MIN_PULSEWIDTH_US 500  // Minimum pulse width in microsecond
-#define SERVO_MAX_PULSEWIDTH_US 2500  // Maximum pulse width in microsecond
-#define SERVO_MIN_DEGREE        -90   // Minimum angle
-#define SERVO_MAX_DEGREE        90    // Maximum angle
+#define SERVO_MAX_PULSEWIDTH_US 2500 // Maximum pulse width in microsecond
+#define SERVO_MIN_DEGREE -90         // Minimum angle
+#define SERVO_MAX_DEGREE 90          // Maximum angle
 
+#define SERVO_TIMEBASE_RESOLUTION_HZ 1000000 // 1MHz, 1us per tick
+#define SERVO_TIMEBASE_PERIOD 20000          // 20000 ticks, 20ms
 
-#define SERVO_TIMEBASE_RESOLUTION_HZ 1000000  // 1MHz, 1us per tick
-#define SERVO_TIMEBASE_PERIOD        20000    // 20000 ticks, 20ms
+#define SERVO_STRUM_GPIO 15 // GPIO number for strum servo
+#define SERVO_FRET_GPIO 16  // GPIO number for fret servo
 
+#define SERVO_STRUM_ANGLE -20    // Initial angle for strum servo
+#define SERVO_FRET_UP_ANGLE 70   // Angle for fret servo when up
+#define SERVO_FRET_DOWN_ANGLE 85 // Angle for fret servo when down
 
-#define SERVO_STRUM_GPIO             15 // GPIO number for strum servo
-#define SERVO_FRET_GPIO              16 // GPIO number for fret servo
+#define SERVO_SPEED 0.12 // s/60degree
 /* ***************************************************************************************************************** */
 /*                                                 结构体定义                                                         */
 /* ***************************************************************************************************************** */
@@ -95,13 +98,12 @@ void servo_motor_task(void *arg)
     mcpwm_cmpr_handle_t strum_pwm_cmp = pwm_create(SERVO_STRUM_GPIO);
     mcpwm_cmpr_handle_t fret_pwm_cmp = pwm_create(SERVO_FRET_GPIO);
 
-    int angle = -20;
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(0))); 
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(strum_pwm_cmp, angle_to_compare(angle)));
+    int strum_angle = SERVO_STRUM_ANGLE;
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE))); 
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(strum_pwm_cmp, angle_to_compare(strum_angle)));
     while (1) {
-        // wait for angle
         int index;
-        BaseType_t rc = xTaskNotifyWait(0, 0, &index, pdMS_TO_TICKS(1000));
+        BaseType_t rc = xTaskNotifyWait(0, 0, (uint32_t *)&index, pdMS_TO_TICKS(1000));
         if (rc == pdFALSE) {
             continue;
         }
@@ -109,16 +111,16 @@ void servo_motor_task(void *arg)
         switch (index) {
         case 1 :
             /* 抬起 */
-            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(70)));  
+            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));  
             break;
         case 2 :
             /* 按下 */
-            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(85)));  
+            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE)));  
             break;
         case 3 :
             /* 拨弦 */
-            angle = -angle;
-            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(strum_pwm_cmp, angle_to_compare(angle)));
+            strum_angle = -strum_angle;
+            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(strum_pwm_cmp, angle_to_compare(strum_angle)));
             break;
         default:
             ESP_LOGE(TAG, "Invalid index: %d", index);
@@ -136,3 +138,14 @@ TaskHandle_t get_servo_motor_task_handle(void)
 {
     return g_servo_task_handle;
 }
+
+int get_strum_servo_delay(void)
+{
+    return SERVO_SPEED * 1000 / 60 * abs(SERVO_STRUM_ANGLE * 2); // ms
+}
+
+int get_fret_servo_delay(void)
+{
+    return SERVO_SPEED * 1000 / 60 * abs(SERVO_FRET_UP_ANGLE - SERVO_FRET_DOWN_ANGLE); // ms
+}
+

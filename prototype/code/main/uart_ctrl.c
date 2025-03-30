@@ -11,6 +11,8 @@
 #include "math.h"
 #include "note_decode.h"
 #include "string.h"
+#include "stdlib.h"
+#include "esp_timer.h"
 
 // uart configurations
 #define ECHO_TEST_TXD (43)
@@ -54,22 +56,19 @@ static int do_play(char *cmd)
 {
     int midi = parse_simple_note_to_midi(cmd + strlen("p "));
     float freq = convert_midi_to_freq(midi);
-    ESP_LOGI(TAG, "midi = %d, freq = %f", midi, freq);
+    // ESP_LOGI(TAG, "midi = %d, freq = %f", midi, freq);
 
-    // send signal to fret motor
-    xTaskNotify(get_servo_motor_task_handle(), 1, eSetValueWithOverwrite);
-    vTaskDelay(get_fret_servo_delay() / portTICK_PERIOD_MS);
-    // send signal to step motor, And move ruler to the right position
-    xTaskNotify(get_step_motor_task_handle(), *(uint32_t*)&freq, eSetValueWithOverwrite);
-    // TODO: wait for step motor to finish
-    // wait_motor_done();
-    vTaskDelay(200 / portTICK_PERIOD_MS);
+    // fret up
+    servo_motor_action(1);
 
-    // send signal to fret motor
-    xTaskNotify(get_servo_motor_task_handle(), 2, eSetValueWithOverwrite);
-    vTaskDelay(get_fret_servo_delay() / portTICK_PERIOD_MS);
-    // send signal to strum motor        
-    xTaskNotify(get_servo_motor_task_handle(), 3, eSetValueWithOverwrite);
+    // move to the position
+    step_motor_action(freq);
+
+    // fret down, max octave(eg. lowest note E2~E3) cost 150ms at SPEDD_Hz=700
+    servo_motor_action(2);
+
+    // strum
+    servo_motor_action(3);
 
     return ESP_OK;
 }
@@ -121,10 +120,11 @@ static void uart_task(void *arg)
     char *data = (char *) malloc(BUF_SIZE);
 
     int total_len = 0;
-    // int lastpos = 150;
+    uint32_t delay = 10; // ms
+    uint32_t no_data_num = 0;
     while (1) {
         // Read data from the UART
-        int len = uart_read_bytes(ECHO_UART_PORT_NUM, &data[total_len], (BUF_SIZE - total_len - 1), 10 / portTICK_PERIOD_MS);
+        int len = uart_read_bytes(ECHO_UART_PORT_NUM, &data[total_len], (BUF_SIZE - total_len - 1), delay / portTICK_PERIOD_MS);
         if (len > 0) {
             total_len += len;
             if (data[total_len - 1] != '\n' && data[total_len - 1] != '\r') {
@@ -133,17 +133,25 @@ static void uart_task(void *arg)
                 data[total_len] = '\0';
                 total_len = 0;
             }
+            no_data_num = 0;
         } else {
+            no_data_num++;
+            if (no_data_num == 10 * 1000 / delay) {
+                servo_motor_action(1);
+            }
             continue;
         }
-        ESP_LOGI(TAG, "data = %s", data);
-        
+        // ESP_LOGI(TAG, "data = %s", data);
+        // get timestamp
+        int64_t start = esp_timer_get_time();
         (void)dispatch_uart_cmd(data);
+        int64_t end = esp_timer_get_time();
+        ESP_LOGI(TAG, "UART command execution time: %lld ms", end - start);
     }   
 }
 
 void uart_init(void)
 {
-    xTaskCreate(uart_task, "uart_task", ECHO_TASK_STACK_SIZE, NULL, 3, NULL);
+    xTaskCreate(uart_task, "uart_task", ECHO_TASK_STACK_SIZE, NULL, 5, NULL);
 }
 

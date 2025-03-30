@@ -15,6 +15,7 @@
 void app_main(void)
 {
     servo_motor_init();
+    vTaskDelay(500 / portTICK_PERIOD_MS);   // wait for servo motor action to finish
     step_motor_init();
     uart_init();
 

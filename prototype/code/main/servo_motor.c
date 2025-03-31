@@ -103,7 +103,7 @@ void servo_motor_action(int index)
     case 1 :
         /* Fret up */
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
-        vTaskDelay(70 / portTICK_PERIOD_MS);
+        vTaskDelay(60 / portTICK_PERIOD_MS);
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
         break;
     case 2 :
@@ -122,7 +122,7 @@ void servo_motor_action(int index)
             g_strum_angle = SERVO_STRUM_UP_ANGLE;
             ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(g_strum_angle)));
         }
-        vTaskDelay(80 / portTICK_PERIOD_MS);
+        vTaskDelay(70 / portTICK_PERIOD_MS);
         break;
     default:
         ESP_LOGE(TAG, "Invalid index: %d", index);

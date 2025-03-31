@@ -53,13 +53,16 @@
 #define RULER_FREQ_MAX 349.23   // ≈25.61mm
 
 /* formula f=k/(L^2), L=(k/f)^(1/2) */
-#define k 229049.0652
+#define k 194543.9295 // not ok
 
 
 /* ***************************************************************************************************************** */
 /*                                                 结构体定义                                                         */
 /* ***************************************************************************************************************** */
-
+struct LenFreqTlb {
+    float len;
+    float freq;
+};
 /* ***************************************************************************************************************** */
 /*                                                 全局变量                                                           */
 /* ***************************************************************************************************************** */
@@ -73,10 +76,74 @@ rmt_encoder_handle_t g_uniform_motor_encoder = NULL;
 rmt_encoder_handle_t g_accel_motor_encoder = NULL;
 rmt_encoder_handle_t g_decel_motor_encoder = NULL;
 
-
+struct LenFreqTlb g_lf_table[] = {
+    {24, 293},
+    {24.5, 281},
+    {25, 273},
+    {25.5, 266},
+    {26, 258},
+    {26.5, 250},
+    {27, 243},
+    {27.5, 237},
+    {28, 233},
+    {28.5, 227},
+    {29, 221},
+    {29.5, 218},
+    {30, 211},
+    {30.5, 205},
+    {31, 199},
+    {32, 188},
+    {33, 180},
+    {34, 172},
+    {35, 166},
+    {36, 155},
+    {37, 148},
+    {38, 143},
+    {39, 136},
+    {40, 127},
+    {41, 125},
+    {42, 121},
+    {43, 114},
+    {44, 108},
+    {45, 104},
+    {46, 98},
+    {47, 93},
+    {48, 90},
+    {49, 87},
+    {50, 83},
+};
 /* ***************************************************************************************************************** */
 /*                                           function prototype                                                      */
 /* ***************************************************************************************************************** */
+static double get_len_by_freq(double target_freq) {
+    int table_size = sizeof(g_lf_table) / sizeof(g_lf_table[0]);
+
+    // 处理边界情况
+    if (target_freq >= g_lf_table[0].freq) {
+        return -1.0f;
+    }
+    if (target_freq <= g_lf_table[table_size-1].freq) {
+        return -1.0f;
+    }
+
+    // 遍历查找相邻点进行插值
+    for (int i = 0; i < table_size - 1; i++) {
+        // 检查是否在当前区间内
+        if (g_lf_table[i].freq >= target_freq && target_freq >= g_lf_table[i+1].freq) {
+            float f1 = g_lf_table[i].freq;
+            float l1 = g_lf_table[i].len;
+            float f2 = g_lf_table[i+1].freq;
+            float l2 = g_lf_table[i+1].len;
+
+            // 线性插值计算
+            float t = (target_freq - f1) / (f2 - f1);
+            float interpolated_len = l1 + t * (l2 - l1);
+            return interpolated_len;
+        }
+    }
+
+    return -1.0f; // 理论上不会执行到这里
+}
 
 static double convert_len_to_freq(double len)
 {
@@ -108,20 +175,12 @@ static int convert_len_to_step(double len)
     return step;
 }
 
-
-void step_motor_action(double freq)
+int step_motor_action_by_len(double len)
 {
-    if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
-        ESP_LOGE(TAG, "Invalid frequency: %f, no action", freq);
-        return;
-    }
-    /* get motor step */
-    // freq --> length
-    double len = convert_freq_to_len(freq);
     // absolute length --> relative step
     int step = convert_len_to_step(len);
     if (step == 0) {
-        return;
+        return step;
     }
     int dir = (step > 0) ? STEP_MOTOR_SPIN_DIR_CLOCKWISE : STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
     // If the direction changes, compensate for backlash
@@ -157,11 +216,35 @@ void step_motor_action(double freq)
         g_tx_config.loop_count = 0;
         ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_decel_motor_encoder, &decel_samples, sizeof(decel_samples), &g_tx_config));
     }
-    ESP_LOGI(TAG, "step = %d, freq = %f, len = %f", step, freq, len);
     // wait all transactions finished
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
+
+    return step;
+}
+
+/**
+ * @brief stepper motor act as the input freq
+ * 
+ * @param freq 
+ * @return int step numbers 
+ */
+int step_motor_action(double freq)
+{
+    if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
+        ESP_LOGE(TAG, "Invalid frequency: %f, no action", freq);
+        return 0;
+    }
+    // freq --> length
+    double len = get_len_by_freq(freq);
+    if (len < 0) {
+        ESP_LOGI(TAG, "find table error");
+        return 0;
+    }
+    int step = step_motor_action_by_len(len);
+    ESP_LOGI(TAG, "freq = %f, len = %f, step = %d", freq, len, step);
+    return step;
 }
 
 void step_motor_init(void)
@@ -222,13 +305,18 @@ void step_motor_init(void)
     ESP_LOGI(TAG, "Enable RMT channel");
     ESP_ERROR_CHECK(rmt_enable(g_motor_chan));
 
-    
 
-    /* 位置归零 */
     ESP_LOGI(TAG, "Move to central position");
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE); // set direction
+
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
     g_tx_config.loop_count = MAX_STEP + 10 * POW(2, MODE);
     uint32_t speed = SPEED_LOW_HZ;
+    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
+    ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+    
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
+    g_tx_config.loop_count = MAX_STEP + 10 * POW(2, MODE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);

@@ -34,8 +34,10 @@
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
 
 #define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
-#define SAMPLE_POINTS 500
-#define SPEED_HZ (800 * POW(2, MODE))
+
+#define SAMPLE_POINTS (20 * pow(2, MODE))
+#define SPEED_LOW_HZ (500 * pow(2, MODE)) // < SPEED_HZ
+#define SPEED_HZ (1200 * pow(2, MODE))
 
 #define LEN_PER_FULL_STEP 0.15 // mm
 #define MAX_FULL_STEP 296
@@ -68,9 +70,8 @@ rmt_channel_handle_t g_motor_chan = NULL;
 int g_last_dir;
 rmt_transmit_config_t g_tx_config = {0};
 rmt_encoder_handle_t g_uniform_motor_encoder = NULL;
-// const static uint32_t g_accel_samples = SAMPLE_POINTS;
-const static uint32_t g_uniform_speed_hz = SPEED_HZ;
-// const static uint32_t g_decel_samples = SAMPLE_POINTS;
+rmt_encoder_handle_t g_accel_motor_encoder = NULL;
+rmt_encoder_handle_t g_decel_motor_encoder = NULL;
 
 
 /* ***************************************************************************************************************** */
@@ -107,32 +108,11 @@ static int convert_len_to_step(double len)
     return step;
 }
 
-// static int convert_note_to_pos(char *note)
-// {
-//     // note-->midi
-
-//     // midi-->frequency
-//     // double freq = g_midi_freq[midi];
-
-
-
-//     //frequency-->length
-//     double length = sqrt(k / freq);
-//     ESP_LOGI(TAG, "midi =%d, freq = %f, length = %f", midi, freq, length);
-//     //length-->pos
-//     if (length < LENGHT_MIN) {
-//         ESP_ERROR_CHECK(ESP_FAIL);
-//     }
-//     int pos = (int)((length - LENGHT_MIN) / TOTAL_LENGTH * TOTAL_POS);
-
-//     return pos;
-// }
-
 
 void step_motor_action(double freq)
 {
     if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
-        ESP_LOGE(TAG, "Invalid frequency: %f", freq);
+        ESP_LOGE(TAG, "Invalid frequency: %f, no action", freq);
         return;
     }
     /* get motor step */
@@ -143,8 +123,6 @@ void step_motor_action(double freq)
     if (step == 0) {
         return;
     }
-    g_tx_config.loop_count = abs(step);
-    gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
     int dir = (step > 0) ? STEP_MOTOR_SPIN_DIR_CLOCKWISE : STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
     // If the direction changes, compensate for backlash
     if (g_last_dir != dir) {
@@ -152,10 +130,37 @@ void step_motor_action(double freq)
     }
     g_last_dir = dir;
     gpio_set_level(STEP_MOTOR_GPIO_DIR, dir); // set direction
-    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &g_uniform_speed_hz, sizeof(g_uniform_speed_hz), &g_tx_config));
+    gpio_set_level(STEP_MOTOR_GPIO_EN, 0); // enable motor
+
+    uint32_t step_num = abs(step);
+    uint32_t samples;
+    uint32_t accel_samples = SAMPLE_POINTS;
+    uint32_t decel_samples = SAMPLE_POINTS;
+    uint32_t uniform_speed_hz = SPEED_HZ;
+    if (step_num <= SAMPLE_POINTS * 2) {
+        // acceleration phase
+        g_tx_config.loop_count = 0;
+        samples = step_num / 2 + step_num % 2;
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_accel_motor_encoder, &samples, sizeof(samples), &g_tx_config));
+        // deceleration phase
+        g_tx_config.loop_count = 0;
+        samples = step_num / 2;
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_decel_motor_encoder, &samples, sizeof(samples), &g_tx_config));
+    } else {
+        // acceleration phase
+        g_tx_config.loop_count = 0;
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_accel_motor_encoder, &accel_samples, sizeof(accel_samples), &g_tx_config));
+        // uniform phase
+        g_tx_config.loop_count = step_num - accel_samples - decel_samples;
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &uniform_speed_hz, sizeof(uniform_speed_hz), &g_tx_config));
+        // deceleration phase
+        g_tx_config.loop_count = 0;
+        ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_decel_motor_encoder, &decel_samples, sizeof(decel_samples), &g_tx_config));
+    }
     ESP_LOGI(TAG, "step = %d, freq = %f, len = %f", step, freq, len);
+    // wait all transactions finished
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(pdMS_TO_TICKS(10));
     gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
 }
 
@@ -193,44 +198,44 @@ void step_motor_init(void)
     gpio_set_level(STEP_MOTOR_MODE2_PIN, (MODE & 0x04) >> 2);
 
     ESP_LOGI(TAG, "Create motor encoders");
-    // stepper_motor_curve_encoder_config_t accel_encoder_config = {
-    //     .resolution = STEP_MOTOR_RESOLUTION_HZ,
-    //     .sample_points = SAMPLE_POINTS,
-    //     .start_freq_hz = 500,
-    //     .end_freq_hz = SPEED_HZ,
-    // };
-    // rmt_encoder_handle_t accel_motor_encoder = NULL;
-    // ESP_ERROR_CHECK(rmt_new_stepper_motor_curve_encoder(&accel_encoder_config, &accel_motor_encoder));
+    stepper_motor_curve_encoder_config_t accel_encoder_config = {
+        .resolution = STEP_MOTOR_RESOLUTION_HZ,
+        .sample_points = SAMPLE_POINTS,
+        .start_freq_hz = SPEED_LOW_HZ,
+        .end_freq_hz = SPEED_HZ,
+    };
+    ESP_ERROR_CHECK(rmt_new_stepper_motor_curve_encoder(&accel_encoder_config, &g_accel_motor_encoder));
 
     stepper_motor_uniform_encoder_config_t uniform_encoder_config = {
         .resolution = STEP_MOTOR_RESOLUTION_HZ,
     };
     ESP_ERROR_CHECK(rmt_new_stepper_motor_uniform_encoder(&uniform_encoder_config, &g_uniform_motor_encoder));
 
-    // stepper_motor_curve_encoder_config_t decel_encoder_config = {
-    //     .resolution = STEP_MOTOR_RESOLUTION_HZ,
-    //     .sample_points = SAMPLE_POINTS,
-    //     .start_freq_hz = SPEED_HZ,
-    //     .end_freq_hz = 500,
-    // };
-    // rmt_encoder_handle_t decel_motor_encoder = NULL;
-    // ESP_ERROR_CHECK(rmt_new_stepper_motor_curve_encoder(&decel_encoder_config, &decel_motor_encoder));
+    stepper_motor_curve_encoder_config_t decel_encoder_config = {
+        .resolution = STEP_MOTOR_RESOLUTION_HZ,
+        .sample_points = SAMPLE_POINTS,
+        .start_freq_hz = SPEED_HZ,
+        .end_freq_hz = SPEED_LOW_HZ,
+    };
+    ESP_ERROR_CHECK(rmt_new_stepper_motor_curve_encoder(&decel_encoder_config, &g_decel_motor_encoder));
 
     ESP_LOGI(TAG, "Enable RMT channel");
     ESP_ERROR_CHECK(rmt_enable(g_motor_chan));
 
-    ESP_LOGI(TAG, "Spin motor for 6000 steps: 500 accel + 5000 uniform + 500 decel");
+    
 
     /* 位置归零 */
+    ESP_LOGI(TAG, "Move to central position");
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE); // set direction
     g_tx_config.loop_count = MAX_STEP + 10 * POW(2, MODE);
-    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &g_uniform_speed_hz, sizeof(g_uniform_speed_hz), &g_tx_config));
+    uint32_t speed = SPEED_LOW_HZ;
+    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
     g_tx_config.loop_count = MAX_STEP / 2;
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
-    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &g_uniform_speed_hz, sizeof(g_uniform_speed_hz), &g_tx_config));
+    ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
 

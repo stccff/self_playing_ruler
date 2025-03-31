@@ -60,13 +60,10 @@ static int do_play(char *cmd)
 
     // fret up
     servo_motor_action(1);
-
     // move to the position
     step_motor_action(freq);
-
     // fret down, max octave(eg. lowest note E2~E3) cost 150ms at SPEDD_Hz=700
     servo_motor_action(2);
-
     // strum
     servo_motor_action(3);
 
@@ -137,16 +134,16 @@ static void uart_task(void *arg)
         } else {
             no_data_num++;
             if (no_data_num == 10 * 1000 / delay) {
-                servo_motor_action(1);
+                servo_motor_action(1); // avoid stalling
             }
             continue;
         }
         // ESP_LOGI(TAG, "data = %s", data);
-        // get timestamp
+
         int64_t start = esp_timer_get_time();
         (void)dispatch_uart_cmd(data);
         int64_t end = esp_timer_get_time();
-        ESP_LOGI(TAG, "UART command execution time: %lld ms", end - start);
+        ESP_LOGI(TAG, "UART command execution time: %lld ms", (end - start) / 1000);
     }   
 }
 

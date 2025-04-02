@@ -49,8 +49,8 @@
 #define RULER_LENGHT_MIN 13.5   // mm 13.7?
 #define RULER_LENGTH_MAX 58     // mm
 
-#define RULER_FREQ_MIN 73.42    // ≈55.80mm
-#define RULER_FREQ_MAX 349.23   // ≈25.61mm
+// #define RULER_FREQ_MIN 73.42    // ≈55.80mm
+// #define RULER_FREQ_MAX 349.23   // ≈25.61mm
 
 /* formula f=k/(L^2), L=(k/f)^(1/2) */
 #define k 194543.9295 // not ok
@@ -77,40 +77,47 @@ rmt_encoder_handle_t g_accel_motor_encoder = NULL;
 rmt_encoder_handle_t g_decel_motor_encoder = NULL;
 
 struct LenFreqTlb g_lf_table[] = {
-    {24, 293},
-    {24.5, 281},
-    {25, 273},
-    {25.5, 266},
-    {26, 258},
-    {26.5, 250},
-    {27, 243},
-    {27.5, 237},
-    {28, 233},
-    {28.5, 227},
-    {29, 221},
-    {29.5, 218},
-    {30, 211},
-    {30.5, 205},
-    {31, 199},
-    {32, 188},
-    {33, 180},
-    {34, 172},
-    {35, 166},
-    {36, 155},
-    {37, 148},
-    {38, 143},
-    {39, 136},
-    {40, 127},
-    {41, 125},
-    {42, 121},
-    {43, 114},
-    {44, 108},
-    {45, 104},
-    {46, 98},
-    {47, 93},
-    {48, 90},
-    {49, 87},
-    {50, 83},
+    {24, 303}, 
+    {24.5, 295}, 
+    {25, 287}, 
+    {25.5, 279}, 
+    {26, 270}, 
+    {26.5, 260}, 
+    {27, 250}, 
+    {27.5, 243}, 
+    {28, 233}, 
+    {28.5, 227}, 
+    {29, 221}, 
+    {29.5, 218}, 
+    {30, 211}, 
+    {30.5, 205}, 
+    {31, 199}, 
+    {32, 188}, 
+    {33, 180}, 
+    {34, 172}, 
+    {35, 165}, 
+    {36, 157}, 
+    {37, 148}, 
+    {38, 144}, 
+    {39, 137}, 
+    {40, 133}, 
+    {41, 126}, 
+    {42, 121}, 
+    {43, 114}, 
+    {44, 108}, 
+    {45, 104}, 
+    {46, 98}, 
+    {47, 93}, 
+    {48, 90}, 
+    {49, 87}, 
+    {50, 83}, 
+    {51, 81}, 
+    {52, 80}, 
+    {53, 78}, 
+    {54, 77}, 
+    {55, 76}, 
+    {56, 75}, 
+    {57, 75}, 
 };
 /* ***************************************************************************************************************** */
 /*                                           function prototype                                                      */
@@ -120,10 +127,12 @@ static double get_len_by_freq(double target_freq) {
 
     // 处理边界情况
     if (target_freq >= g_lf_table[0].freq) {
-        return -1.0f;
+        ESP_LOGE(TAG, "freq:%lf in outof table, use:%f", target_freq, g_lf_table[0].freq);
+        return g_lf_table[0].len;
     }
     if (target_freq <= g_lf_table[table_size-1].freq) {
-        return -1.0f;
+        ESP_LOGE(TAG, "freq:%lf in outof table, use:%f", target_freq, g_lf_table[table_size-1].freq);
+        return g_lf_table[table_size-1].len;
     }
 
     // 遍历查找相邻点进行插值
@@ -232,10 +241,10 @@ int step_motor_action_by_len(double len)
  */
 int step_motor_action(double freq)
 {
-    if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
-        ESP_LOGE(TAG, "Invalid frequency: %f, no action", freq);
-        return 0;
-    }
+    // if (freq < RULER_FREQ_MIN || freq > RULER_FREQ_MAX) {
+    //     ESP_LOGE(TAG, "Invalid frequency: %f, no action", freq);
+    //     return 0;
+    // }
     // freq --> length
     double len = get_len_by_freq(freq);
     if (len < 0) {

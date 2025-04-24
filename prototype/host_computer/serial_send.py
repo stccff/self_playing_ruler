@@ -11,6 +11,7 @@ def parse_note_and_handle_serial(note, port='COM4', baudrate=115200):
     data_list = note[1:]
     # Calculate delay time based on speed
     delay_time = 1 / (speed / 60)
+    print("beats delay time %fs" % (delay_time))
 
     try:
         with serial.Serial(port, baudrate, dsrdtr=False, rtscts=False, timeout=1) as ser:

@@ -139,6 +139,7 @@ void servo_motor_init(void)
     g_strum_angle = SERVO_STRUM_UP_ANGLE;
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE))); 
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(SERVO_STRUM_UP_ANGLE)));
+    vTaskDelay(500 / portTICK_PERIOD_MS);   // wait for servo motor action to finish
 
     return;
 }

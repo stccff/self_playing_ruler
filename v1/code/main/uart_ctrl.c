@@ -61,7 +61,7 @@ static int do_play(char *cmd)
     // fret up
     servo_motor_action(1);
     // move to the position
-    step_motor_action(freq);
+    stepper_motor_action(freq);
     // fret down, max octave(eg. lowest note E2~E3) cost 150ms at SPEDD_Hz=700
     servo_motor_action(2);
     // strum
@@ -76,12 +76,12 @@ static int do_test(char *cmd)
     double len;
     sscanf(data, "%lf\n", &len);
 
-    // fret up
+    // release the ruler
     servo_motor_action(1);
     // move to the position
     int step = step_motor_action_by_len(len);
     ESP_LOGI(TAG, "len = %f, step = %d",len, step);
-    // fret down, max octave(eg. lowest note E2~E3) cost 150ms at SPEDD_Hz=700
+    // fret // max octave(eg. lowest note E2~E3) cost 150ms at SPEDD_Hz=700
     servo_motor_action(2);
     // strum
     servo_motor_action(3);

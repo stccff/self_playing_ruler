@@ -101,13 +101,13 @@ void servo_motor_action(int index)
 {
     switch (index) {
     case 1 :
-        /* Fret up */
+        /* Release */
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
         vTaskDelay(50 / portTICK_PERIOD_MS);
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
         break;
     case 2 :
-        /* Fret down */
+        /* Fret */
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE -30)));
         vTaskDelay(60 / portTICK_PERIOD_MS);
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE)));

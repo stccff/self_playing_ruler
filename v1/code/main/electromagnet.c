@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
+#include "electromagnet.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */

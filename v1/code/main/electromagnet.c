@@ -4,9 +4,9 @@
  * @brief Electromagnet control module, use H bridege chip.
  * @version 0.1
  * @date 2025-05-26
- * 
+ *
  * @copyright Copyright (c) 2025
- * 
+ *
  */
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,14 +22,14 @@
 #define MAGNET_TOP_A_GPIO -1
 #define MAGNET_TOP_B_GPIO -1
 #define MAGNET_BOTTOM_A_GPIO -1
-#define MAGNET_BOTTOM_B_GPIO -1
+#define MAGNET_BOTTOM_B_GPIO -1 // TODO:
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
 /* ***************************************************************************************************************** */
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
-int g_e_magnet_io_cfg[][] = {
+int g_e_magnet_io_cfg[2][2] = {
     {MAGNET_TOP_A_GPIO, MAGNET_TOP_B_GPIO},   // Top electromagnet
     {MAGNET_BOTTOM_A_GPIO, MAGNET_BOTTOM_B_GPIO} // Bottom electromagnet
 };
@@ -46,7 +46,7 @@ void electromagnet_init(void)
     ESP_ERROR_CHECK(gpio_config(&magnet_io_cfg));
 
     electromagnet_set(0, 0);
-    electromagnet_set(1, 0); // off 
+    electromagnet_set(1, 0); // off
 }
 
 void electromagnet_set(int index, int polarity)

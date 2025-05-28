@@ -14,6 +14,8 @@
 #include "step_motor.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "play.h"
+#include "digital_mic.h"
 
 /* ***************************************************************************************************************** */
 /*                                                 macro define                                                            */
@@ -63,7 +65,8 @@
 
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
-
+#define FREQ_TABLE_FFT_SIZE 4096
+#define FREQ_TABLE_FFT_DELAY 1000 // ms
 
 /* ***************************************************************************************************************** */
 /*                                                 struct define                                                     */
@@ -92,11 +95,12 @@ size_t g_pf_table_size = 0;
 /* ***************************************************************************************************************** */
 /**
  * @brief Get the stepper motor absolute step by frequency
- * 
- * @param target_freq 
- * @return double 
+ *
+ * @param target_freq
+ * @return double
  */
-static double get_pos_by_freq(double target_freq) {
+static double get_pos_by_freq(double target_freq)
+{
     // int table_size = sizeof(g_pf_table) / sizeof(g_pf_table[0]);
     int table_size = g_pf_table_size;
     if (g_pf_table == NULL || table_size == 0) {
@@ -110,7 +114,7 @@ static double get_pos_by_freq(double target_freq) {
         return -1;
     }
     if (target_freq <= g_pf_table[table_size-1].freq) {
-        ESP_LOGE(TAG, "freq:%lf in outof table", target_freq,);
+        ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
         return -1;
     }
 
@@ -119,13 +123,13 @@ static double get_pos_by_freq(double target_freq) {
         // check the range
         if (g_pf_table[i].freq >= target_freq && target_freq >= g_pf_table[i+1].freq) {
             float f1 = g_pf_table[i].freq;
-            float l1 = g_pf_table[i].len;
+            float p1 = g_pf_table[i].pos;
             float f2 = g_pf_table[i+1].freq;
-            float l2 = g_pf_table[i+1].len;
+            float p2 = g_pf_table[i+1].pos;
 
             // do linear interpolation
             float t = (target_freq - f1) / (f2 - f1);
-            float interpolated_len = l1 + t * (l2 - l1);
+            float interpolated_len = p1 + t * (p2 - p1);
             return interpolated_len;
         }
     }
@@ -135,9 +139,9 @@ static double get_pos_by_freq(double target_freq) {
 
 /**
  * @brief convert the length(mm) to absolute step
- * 
- * @param len 
- * @return int 
+ *
+ * @param len
+ * @return int
  */
 static int convert_len_to_pos(double len)
 {
@@ -150,9 +154,9 @@ static int convert_len_to_pos(double len)
 
 /**
  * @brief convert the absolute step to relative step
- * 
+ *
  * @param pos absolute step
- * @return int 
+ * @return int
  */
 static int convert_pos_to_step(int pos)
 {
@@ -161,7 +165,7 @@ static int convert_pos_to_step(int pos)
     return step;
 }
 
-int step_motor_action_by_len(double len)
+int stepper_motor_action_by_len(double len)
 {
     int pos = convert_len_to_pos(len);
     if (pos < 0) {
@@ -219,11 +223,11 @@ int stepper_motor_action_by_pos(int pos)
 
 /**
  * @brief stepper motor act as the input freq
- * 
- * @param freq 
- * @return int step numbers 
+ *
+ * @param freq
+ * @return int step numbers
  */
-int stepper_motor_action(double freq)
+int stepper_motor_action_by_freq(double freq)
 {
     int pos = get_pos_by_freq(freq);
     if (pos < 0) {
@@ -302,7 +306,7 @@ static void action_init(void)
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
-    
+
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
     g_tx_config.loop_count = MAX_STEP + 10 * (1 << MODE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
@@ -322,7 +326,7 @@ static void action_init(void)
     g_last_dir = STEP_MOTOR_SPIN_DIR_CLOCKWISE;
 }
 
-static void init_nvs(void)
+void init_nvs_for_freq_table(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -334,6 +338,27 @@ static void init_nvs(void)
     ESP_ERROR_CHECK(err);
 }
 
+
+static int measure_frequency(float len, float *freq)
+{
+    int rc = ESP_OK;
+
+    rc = play_sigle_note_by_len(len);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "measure play len:%f fail", len);
+        return rc;
+    }
+
+    rc = get_sound_frequency(freq);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "measure get sound frequency fail");
+        return rc;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(FREQ_TABLE_FFT_DELAY));
+
+    return rc;
+}
 
 static int creat_freq_table(void)
 {
@@ -355,10 +380,12 @@ static int creat_freq_table(void)
         return ESP_ERR_NO_MEM;
     }
 
+    rc = sound_fft_init(FREQ_TABLE_FFT_SIZE);
+
     float step_len = 0;
     for (int i = 0; i < g_pf_table_size; i++) {
         if (i < step_mini_num) {
-            float step_len = 0.5;
+            step_len = 0.5;
         } else {
             step_len = 1;
         }
@@ -379,7 +406,7 @@ static int creat_freq_table(void)
     return ESP_OK;
 }
 
-static int freq_table_init(bool force_init)
+int freq_table_init(bool force_init)
 {
     int rc = ESP_OK;
 
@@ -440,14 +467,14 @@ static int freq_table_init(bool force_init)
                 rc = ESP_ERR_NO_MEM;
                 goto err;
             }
-            int err = nvs_get_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, tlb_size);
+            int err = nvs_get_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, &tlb_size);
             if (err != ESP_OK) {
                 ESP_LOGE(TAG, "Error (%s) reading NVS blob", esp_err_to_name(err));
                 goto err;
             }
             g_pf_table_size = tlb_size;
             ESP_LOGI(TAG, "Frequency table loaded from NVS, index num: %d", tlb_size / sizeof(struct PosFreqTlb));
-        }        
+        }
     }
 
 err:
@@ -468,10 +495,6 @@ void stepper_motor_init(void)
 {
     /* stepper motor action init */
     action_init();
-    /* init nvs */
-    init_nvs();
     /* init frequncy table */
     ESP_ERROR_CHECK(freq_table_init(false)); // TODO:
 }
-
-

@@ -32,7 +32,7 @@
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
-static const char *TAG = "example";
+static const char *TAG = "servo_motor";
 TaskHandle_t g_servo_task_handle = NULL;
 mcpwm_cmpr_handle_t g_strum_pwm_cmp = NULL;
 mcpwm_cmpr_handle_t g_fret_pwm_cmp = NULL;
@@ -135,17 +135,11 @@ void servo_motor_action(int index)
 void servo_motor_init(void)
 {
     g_strum_pwm_cmp = pwm_create(SERVO_STRUM_GPIO);
-    g_fret_pwm_cmp = pwm_create(SERVO_FRET_GPIO);
+    // g_fret_pwm_cmp = pwm_create(SERVO_FRET_GPIO);
     g_strum_angle = SERVO_STRUM_UP_ANGLE;
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE))); 
+    // ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(SERVO_STRUM_UP_ANGLE)));
     vTaskDelay(500 / portTICK_PERIOD_MS);   // wait for servo motor action to finish
 
     return;
 }
-
-TaskHandle_t get_servo_motor_task_handle(void)
-{
-    return g_servo_task_handle;
-}
-

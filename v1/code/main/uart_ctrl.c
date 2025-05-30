@@ -95,6 +95,17 @@ static int do_cmd_init_freq_table(void)
     return ESP_OK;
 }
 
+static int do_cmd_clear_freq_table(void)
+{
+    int rc = freq_table_clear();
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear frequency table");
+        return rc;
+    }
+    ESP_LOGI(TAG, "Frequency table clear success");
+    return ESP_OK;
+}
+
 
 /**
  * @brief
@@ -111,7 +122,7 @@ int dispatch_uart_cmd(char *cmd)
     if (status) {
         // midi is playing, ignore the command
         ESP_LOGW(TAG, "MIDI is playing, command ignored: %s", cmd);
-        return rc;
+        return ESP_OK;
     }
 
     if (strncmp(cmd, "set", strlen("set")) == 0) {
@@ -122,13 +133,20 @@ int dispatch_uart_cmd(char *cmd)
         rc = do_cmd_test(cmd);
     } else if (strncmp(cmd, "init freq table", strlen("init freq table")) == 0) {
         rc = do_cmd_init_freq_table();
+    } else if (strncmp(cmd, "clear freq table", strlen("clear freq table")) == 0) {
+        rc = do_cmd_clear_freq_table();
     } else {
         ESP_LOGW(TAG, "Invalid command: %s", cmd);
     }
-    return ESP_OK;
+    return rc;
 }
 
-
+/**
+ * @brief a uart terminal TODO: need reconstruction
+ *
+ * @param cmd_parse_func
+ * @param loop_delay
+ */
 static void start_terminal(int (*cmd_parse_func)(char*),uint32_t loop_delay)
 {
     char *data = (char *) malloc(BUF_SIZE);

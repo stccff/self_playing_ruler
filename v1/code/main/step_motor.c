@@ -500,6 +500,34 @@ err:
     // check tbale valiation(1.is sorted, 2.check freq is accurate)
 }
 
+int freq_table_clear(void)
+{
+    int rc = ESP_OK;
+    // Open
+    nvs_handle_t nvs_handle;
+    rc = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle", esp_err_to_name(rc));
+        return rc;
+    }
+    // Write blob
+    rc = nvs_erase_key(nvs_handle, FREQ_TABLE_KEY);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) erase key", esp_err_to_name(rc));
+        goto err;
+    }
+    // Commit
+    rc = nvs_commit(nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) committing NVS changes", esp_err_to_name(rc));
+        goto err;
+    }
+err:
+    nvs_close(nvs_handle);
+
+    return rc;
+}
+
 void stepper_motor_init(void)
 {
     /* stepper motor action init */

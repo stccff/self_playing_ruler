@@ -5,6 +5,7 @@
 #include "driver/i2s_std.h"
 #include "digital_mic.h"
 #include "signal_fft.h"
+#include "gpio_pin_config.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -23,10 +24,7 @@ static i2s_chan_handle_t rx_handle = NULL;
 #define INMP441_STANDBY_CLK (1 << 14)
 #define INMP441_STANDBY_BYTES (INMP441_STANDBY_CLK / (EXAMPLE_SLOT_WIDTH * 2) * EXAMPLE_BIT_WIDTH / 8) // standby invalid data(each period has 2 slot, only 1 slot is valid in mono mode)
 #define SAMPLE_MAX_VALUE ((1 << (EXAMPLE_BIT_WIDTH - 1)) - 1)
-/* I2S port and GPIOs */
-#define I2S_BCK_IO      (GPIO_NUM_15)
-#define I2S_WS_IO       (GPIO_NUM_16)
-#define I2S_DI_IO       (GPIO_NUM_17)
+
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
 /* ***************************************************************************************************************** */
@@ -105,7 +103,7 @@ static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, 
     // clear the dma buffer
     if (is_dma_clear) {
         // size_t standby_bytes = INMP441_STANDBY_BYTES;
-        size_t dma_buffer_bytes = EXAMPLE_DMA_DESC_NUM * EXAMPLE_DMA_FRAME_NUM * EXAMPLE_BIT_WIDTH / 8; // dma legacy data, clear dma
+        size_t dma_buffer_bytes = EXAMPLE_DMA_DESC_NUM * EXAMPLE_DMA_FRAME_NUM * EXAMPLE_BIT_WIDTH / 8; // dma legacy data, clear dma // TODO: if not full
         size_t skip_bytes = dma_buffer_bytes;
         uint8_t *skip_buff = (uint8_t *)malloc(skip_bytes);
         if (skip_buff == NULL) {
@@ -113,7 +111,7 @@ static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, 
             return ESP_ERR_NO_MEM;
         }
         ESP_LOGI(TAG, "read skip data: %d", skip_bytes);
-        rc = i2s_channel_read(rx_handle, skip_buff,  skip_bytes, &bytes_read, 1000);
+        rc = i2s_channel_read(rx_handle, skip_buff, skip_bytes, &bytes_read, 1000);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Read Failed!, rc=%d, bytes_read=%d", rc, bytes_read);
             free(skip_buff);
@@ -132,6 +130,7 @@ static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, 
 
     for (size_t i = 0; i < bytes_to_read / (EXAMPLE_BIT_WIDTH / 8); i++) {
         int tmp = (i2s_buff[i*date_bytes+2] << 16) | (i2s_buff[i*date_bytes+1] << 8) | i2s_buff[i*date_bytes];
+        // printf("%d\n", (tmp << 8) >> 8);
         fft_buff[i] = (tmp << 8) >> 8; // add sign extension
     }
 
@@ -163,13 +162,13 @@ int sound_fft_init(float fft_size)
             g_fft_buff = NULL;
         }
 
-        g_i2s_buff = (uint8_t *)malloc(g_fft_size * EXAMPLE_BIT_WIDTH / 8);
+        g_i2s_buff = (uint8_t *)malloc(fft_size * EXAMPLE_BIT_WIDTH / 8);
         if (g_i2s_buff == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for I2S buffer");
             return ESP_ERR_NO_MEM;
         }
 
-        g_fft_buff = (float *)malloc(g_fft_size * sizeof(float));
+        g_fft_buff = (float *)malloc(fft_size * sizeof(float));
         if (g_fft_buff == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for FFT buffer");
             free(g_i2s_buff);
@@ -188,7 +187,7 @@ int sound_fft_init(float fft_size)
  * @param freq [out] pointer to store the calculated frequency
  * @return int
  */
-int get_sound_frequency(float *freq)
+int get_sound_frequency(float *freq, bool print)
 {
     int rc = ESP_OK;
 
@@ -206,15 +205,19 @@ int get_sound_frequency(float *freq)
     float *buff = g_fft_buff;
     size_t size = g_fft_size;
     for (size_t i = 1; i < size / 2; i++) {
+        // printf("%f\n", buff[i]);
         if (buff[i] > buff[k]) {
             k = i;
         }
     }
     // Tri-node parabolic interpolation
     float delt = (buff[k+1] - buff[k-1]) / (4*buff[k] - 2*buff[k-1] - 2*buff[k+1]);
-    *freq = (k + delt) * EXAMPLE_SAMPLE_RATE / size;
+    float vertex = (k + delt) * EXAMPLE_SAMPLE_RATE / size;
     float freq_max = (float)k * EXAMPLE_SAMPLE_RATE / size;
-    ESP_LOGI(TAG, "max freq = %f, vertex freq = %f", freq_max, *freq); // TODO: remove this log
+    if (print) {
+        ESP_LOGI(TAG, "max freq = %f, vertex freq = %f", freq_max, vertex);
+    }
+    *freq = vertex;
 
     return rc;
 }

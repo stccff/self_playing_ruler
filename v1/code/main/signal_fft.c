@@ -87,13 +87,13 @@ void do_fft(float *buff, size_t size)
             buff[i] = buff[i] * g_fft_window[i];
         }
 
-        if (is_power_of_four(size)) {
+        if (is_power_of_four(size >> 1)) {
             // FFT Radix-4
-            dsps_fft4r_fc32(buff, size);
+            dsps_fft4r_fc32(buff, size >> 1);
             // Bit reverse
-            dsps_bit_rev4r_fc32(buff, size);
+            dsps_bit_rev4r_fc32(buff, size >> 1);
             // Convert one complex vector with length FFT_SIZE/2 to one real spectrum vector with length FFT_SIZE/2
-            dsps_cplx2real_fc32(buff, size);
+            dsps_cplx2real_fc32(buff, size >> 1);
         } else {
             // FFT Radix-2
             dsps_fft2r_fc32(buff, size >> 1);
@@ -107,7 +107,7 @@ void do_fft(float *buff, size_t size)
         float hann_correction_factor = 2.0;
         float fft_normalization_factor = 2.0 / size;
 
-        for(int i=0; i < size/2; i++) {
+        for(int i=0; i < size / 2; i++) {
             float real = buff[i*2];
             float imag = buff[i*2+1];
             buff[i] = sqrtf(real*real + imag*imag) * fft_normalization_factor * hann_correction_factor;

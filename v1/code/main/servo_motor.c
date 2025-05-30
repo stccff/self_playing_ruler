@@ -3,6 +3,8 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "driver/mcpwm_prelude.h"
+#include "servo_motor.h"
+#include "gpio_pin_config.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -16,11 +18,10 @@
 #define SERVO_TIMEBASE_RESOLUTION_HZ 1000000 // 1MHz, 1us per tick
 #define SERVO_TIMEBASE_PERIOD 20000          // 20000 ticks, 20ms
 
-#define SERVO_STRUM_GPIO 15 // GPIO number for strum servo
-#define SERVO_FRET_GPIO 16  // GPIO number for fret servo
+#define SERVO_STRUM_UP_ANGLE 20
+#define SERVO_STRUM_DOWN_ANGLE -35
+#define SERVO_STRUM_DELAY 50 // ms
 
-#define SERVO_STRUM_UP_ANGLE -15 // Angle for strum servo when up
-#define SERVO_STRUM_DOWN_ANGLE 25 // Angle for strum servo when down
 #define SERVO_FRET_UP_ANGLE 70   // Angle for fret servo when up
 #define SERVO_FRET_DOWN_ANGLE 85 // Angle for fret servo when down
 
@@ -100,6 +101,7 @@ mcpwm_cmpr_handle_t pwm_create(int output_gpio)
 void servo_motor_action(int index)
 {
     switch (index) {
+#ifdef CONFIG_SERVO_FRET
     case 1 :
         /* Release */
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
@@ -112,17 +114,12 @@ void servo_motor_action(int index)
         vTaskDelay(60 / portTICK_PERIOD_MS);
         ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE)));
         break;
+#endif
     case 3 :
         /* Strum */
-        // g_strum_angle = (g_strum_angle == SERVO_STRUM_UP_ANGLE) ? SERVO_STRUM_DOWN_ANGLE : SERVO_STRUM_UP_ANGLE;
-        if (g_strum_angle == SERVO_STRUM_UP_ANGLE) {
-            g_strum_angle = SERVO_STRUM_DOWN_ANGLE;
-            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(g_strum_angle)));
-        } else { // down
-            g_strum_angle = SERVO_STRUM_UP_ANGLE;
-            ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(g_strum_angle)));
-        }
-        vTaskDelay(60 / portTICK_PERIOD_MS);
+        g_strum_angle = (g_strum_angle == SERVO_STRUM_UP_ANGLE) ? SERVO_STRUM_DOWN_ANGLE : SERVO_STRUM_UP_ANGLE;
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(g_strum_angle)));
+        // vTaskDelay(SERVO_STRUM_DELAY / portTICK_PERIOD_MS);
         break;
     default:
         ESP_LOGE(TAG, "Invalid index: %d", index);
@@ -137,8 +134,11 @@ void servo_motor_init(void)
     g_strum_pwm_cmp = pwm_create(SERVO_STRUM_GPIO);
     // g_fret_pwm_cmp = pwm_create(SERVO_FRET_GPIO);
     g_strum_angle = SERVO_STRUM_UP_ANGLE;
-    // ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
+#ifdef CONFIG_SERVO_FRET
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
+#endif // CONFIG_SERVO_FRET
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(SERVO_STRUM_UP_ANGLE)));
+
     vTaskDelay(500 / portTICK_PERIOD_MS);   // wait for servo motor action to finish
 
     return;

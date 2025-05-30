@@ -16,18 +16,11 @@
 #include "nvs.h"
 #include "play.h"
 #include "digital_mic.h"
+#include "gpio_pin_config.h"
 
 /* ***************************************************************************************************************** */
 /*                                                 macro define                                                            */
 /* ***************************************************************************************************************** */
-
-#define STEP_MOTOR_GPIO_EN 0
-#define STEP_MOTOR_GPIO_DIR 2
-#define STEP_MOTOR_GPIO_STEP 4
-
-#define STEP_MOTOR_MODE0_PIN 40
-#define STEP_MOTOR_MODE1_PIN 41
-#define STEP_MOTOR_MODE2_PIN 42
 
 #define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
@@ -54,7 +47,7 @@
 #define RULER_LEN_MUSIC_MIN 22.0 // mm
 #define RULER_LEN_MUSIC_MAX 62.0 // mm
 
-#define RULLER_FREQ_STEP_CHANGE_LEN 3.0 // mm
+#define RULLER_FREQ_STEP_CHANGE_LEN 32.0 // mm
 
 // #define RULER_FREQ_MIN 73.42    // ≈55.80mm
 // #define RULER_FREQ_MAX 349.23   // ≈25.61mm
@@ -146,7 +139,7 @@ static double get_pos_by_freq(double target_freq)
 static int convert_len_to_pos(double len)
 {
     if (len < RULER_LEN_MIN || len > RULER_LEN_MAX) {
-        ESP_LOGE(TAG, "Invalid length: %f", len);
+        ESP_LOGE(TAG, "Invalid length: %f, valid range [%f, %f] mm", len, RULER_LEN_MIN, RULER_LEN_MAX);
         return -1;
     }
     return (int)((len - RULER_LEN_MIN) / (RULER_LEN_MAX - RULER_LEN_MIN) * MAX_STEP);
@@ -349,7 +342,7 @@ static int measure_frequency(float len, float *freq)
         return rc;
     }
 
-    rc = get_sound_frequency(freq);
+    rc = get_sound_frequency(freq, true);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "measure get sound frequency fail");
         return rc;
@@ -364,15 +357,22 @@ static int creat_freq_table(void)
 {
     int rc = ESP_OK;
 
-    int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2 + 1;
+    rc = sound_fft_init(FREQ_TABLE_FFT_SIZE);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize sound FFT with error: %d", rc);
+        g_pf_table = NULL;
+        g_pf_table_size = 0;
+        return rc;
+    }
+
+    int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
     int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN;
+    g_pf_table_size = step_mini_num + step_normal_num;
+
     if (g_pf_table != NULL) {
         free(g_pf_table);
         g_pf_table = NULL;
-        g_pf_table_size = 0;
     }
-
-    g_pf_table_size = step_mini_num + step_normal_num;
     g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb) * g_pf_table_size);
     if (g_pf_table == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for frequency table");
@@ -380,18 +380,11 @@ static int creat_freq_table(void)
         return ESP_ERR_NO_MEM;
     }
 
-    rc = sound_fft_init(FREQ_TABLE_FFT_SIZE);
-
-    float step_len = 0;
-    for (int i = 0; i < g_pf_table_size; i++) {
-        if (i < step_mini_num) {
-            step_len = 0.5;
-        } else {
-            step_len = 1;
-        }
+    float step_len = 0.5;
+    for (int i = 0; i < step_mini_num; i++) {
         float len = RULER_LEN_MUSIC_MIN + i * step_len;
         g_pf_table[i].pos = convert_len_to_pos(len);
-        rc = measure_frequency(len, &g_pf_table[i].freq); // TODO: implement measure_frequency
+        rc = measure_frequency(len, &g_pf_table[i].freq);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
             free(g_pf_table);
@@ -400,6 +393,22 @@ static int creat_freq_table(void)
             return rc;
         }
     }
+
+    step_len = 1;
+    struct PosFreqTlb *table = &g_pf_table[step_mini_num];
+    for (int i = 0; i < step_normal_num; i++) {
+        float len = RULLER_FREQ_STEP_CHANGE_LEN + i * step_len;
+        table[i].pos = convert_len_to_pos(len);
+        rc = measure_frequency(len, &table[i].freq);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
+            free(g_pf_table);
+            g_pf_table = NULL;
+            g_pf_table_size = 0;
+            return rc;
+        }
+    }
+
 
     // print
 
@@ -496,5 +505,5 @@ void stepper_motor_init(void)
     /* stepper motor action init */
     action_init();
     /* init frequncy table */
-    ESP_ERROR_CHECK(freq_table_init(false)); // TODO:
+    ESP_ERROR_CHECK(freq_table_init(false));
 }

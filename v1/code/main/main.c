@@ -23,5 +23,9 @@ void app_main(void)
     stepper_motor_init();
     uart_init();
 
+    // while (1) {
+    //     vTaskDelay(pdMS_TO_TICKS(1000));
+    // }
+
     return;
 }

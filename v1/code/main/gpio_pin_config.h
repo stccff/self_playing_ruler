@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+/* GPIO 19 20 reserved for usb D+ D- */
+/* GPIO 48 reserved for RGB led */
+
 /* I2S port and GPIOs */
 #define I2S_BCK_IO      (GPIO_NUM_15)
 #define I2S_WS_IO       (GPIO_NUM_16)
@@ -15,9 +18,9 @@
 #define MAGNET_BOTTOM_B_GPIO 13
 
 /* servo motor GPIOs */
-#define SERVO_STRUM_GPIO 19 // GPIO number for strum servo
+#define SERVO_STRUM_GPIO 21 // GPIO number for strum servo
 #ifdef CONFIG_SERVO_FRET
-#define SERVO_FRET_GPIO 20  // GPIO number for fret servo
+#define SERVO_FRET_GPIO -1  // GPIO number for fret servo
 #endif // CONFIG_SERVO_FRET
 
 /* stepper motor GPIOs */

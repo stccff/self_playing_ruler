@@ -4,5 +4,6 @@
 
 extern int play_sigle_note_by_freq(float freq);
 extern int play_sigle_note_by_len(float len);
+extern int play_sigle_note_by_midi(int midi);
 
 #endif // __PLAY_H

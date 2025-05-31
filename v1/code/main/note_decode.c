@@ -58,7 +58,7 @@ static int g_scale = 0; // Major
 
 /**
  * @brief Parsing simple notation to midi number
- * 
+ *
  * @param note  simple notation like "1", "2.", ".2", "#1", "b2", "1#", "1.b", "1.."
  * @return int  midi number
  */
@@ -68,31 +68,31 @@ int parse_simple_note_to_midi(const char *note)
     int dots_above = 0;
     int note_num = 0;
     int accidentals = 0;  // 升降号计数器
-    
+
     const char* p = note;
-    
+
     // 解析下方点
     while (*p == '.') {
         dots_below++;
         p++;
     }
-    
+
     // 解析数字前升降号
     while (*p == '#' || *p == 'b') {
         accidentals += (*p == '#') ? 1 : -1;
         p++;
     }
-    
+
     // 解析音符数字
     note_num = *p - '0';
     p++;
-    
+
     // 解析数字后升降号
     while (*p == '#' || *p == 'b') {
         accidentals += (*p == '#') ? 1 : -1;
         p++;
     }
-    
+
     // 解析上方点
     while (*p == '.') {
         dots_above++;
@@ -102,18 +102,18 @@ int parse_simple_note_to_midi(const char *note)
     // 计算MIDI编号
     int octave_shift = dots_above - dots_below;
     int midi = g_base + g_scale_offset[g_scale][note_num - 1] + octave_shift * 12 + accidentals;;
-    
+
     // 计算时值（示例：假设4分音符为480 ticks）
     // int duration = 480; // 默认四分音符
-    
+
     return midi;
 }
 
 /**
  * @brief convert midi number to frequency
- * 
- * @param midi 
- * @return float 
+ *
+ * @param midi
+ * @return float
  */
 float convert_midi_to_freq(int midi)
 {

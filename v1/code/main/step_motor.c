@@ -150,6 +150,16 @@ static int convert_len_to_pos(double len)
     return (int)((len - RULER_LEN_MIN) / (RULER_LEN_MAX - RULER_LEN_MIN) * MAX_STEP);
 }
 
+static float convert_pos_to_len(int pos)
+{
+    if (pos < 0 || pos > MAX_STEP) {
+        ESP_LOGE(TAG, "Invalid pos: %d, valid range [%d, %d]", pos, 0, MAX_STEP);
+        return -1;
+    }
+
+    return (float)RULER_LEN_MIN + (RULER_LEN_MAX - RULER_LEN_MIN) * pos / MAX_STEP;
+}
+
 /**
  * @brief convert the absolute step to relative step
  *
@@ -540,8 +550,9 @@ int freq_table_show(void)
         ESP_LOGW(TAG, "frequency table is NULL");
     } else {
         ESP_LOGI(TAG, "frequency table:");
+        printf("len\tpos\tfreq\n");
         for (size_t i = 0; i < g_pf_table_num; i++) {
-            printf("%d %f\n", g_pf_table[i].pos, g_pf_table[i].freq);
+            printf("%f\t%d\t%f\n", convert_pos_to_len(g_pf_table[i].pos), g_pf_table[i].pos, g_pf_table[i].freq);
         }
     }
     return rc;

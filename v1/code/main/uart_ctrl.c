@@ -15,6 +15,7 @@
 #include "esp_timer.h"
 #include "electromagnet.h"
 #include "play.h"
+#include "tusb_midi.h"
 
 // uart configurations
 #define ECHO_TEST_TXD (43)
@@ -117,6 +118,18 @@ static int do_cmd_freq_table_show(void)
     return ESP_OK;
 }
 
+static int do_cmd_set_midi_chan(char *data)
+{
+    int ch = 0;
+    int rc = sscanf(data, "%d\n", &ch);
+    if (rc != 1) {
+        ESP_LOGE(TAG, "Invalid set channel command: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+    set_midi_channel(ch);
+    return ESP_OK;
+}
+
 /**
  * @brief
  *
@@ -135,18 +148,20 @@ int dispatch_uart_cmd(char *cmd)
         return ESP_OK;
     }
 
-    if (strncmp(cmd, "set", strlen("set")) == 0) {
-        rc = do_cmd_set(cmd);
-    } else if (strncmp(cmd, "p", strlen("p")) == 0) {
-        rc = do_cmd_play(cmd);
-    } else if (strncmp(cmd, "test", strlen("test")) == 0) {
-        rc = do_cmd_test(cmd);
-    } else if (strncmp(cmd, "init freq table", strlen("init freq table")) == 0) {
+    if (strncmp(cmd, "init freq table", strlen("init freq table")) == 0) {
         rc = do_cmd_init_freq_table();
     } else if (strncmp(cmd, "clear freq table", strlen("clear freq table")) == 0) {
         rc = do_cmd_clear_freq_table();
     } else if (strncmp(cmd, "freq table show", strlen("freq table show")) == 0){
         rc = do_cmd_freq_table_show();
+    } else if (strncmp(cmd, "set midi chan", strlen("set midi chan")) == 0) {
+        rc = do_cmd_set_midi_chan(cmd + strlen("set midi chan")); // TODO: other like this
+    } else if (strncmp(cmd, "set", strlen("set")) == 0) {
+        rc = do_cmd_set(cmd);
+    } else if (strncmp(cmd, "p", strlen("p")) == 0) {
+        rc = do_cmd_play(cmd);
+    } else if (strncmp(cmd, "test", strlen("test")) == 0) {
+        rc = do_cmd_test(cmd);
     } else {
         ESP_LOGW(TAG, "Invalid command: %s", cmd);
     }

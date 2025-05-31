@@ -5,6 +5,7 @@
 #include "servo_motor.h"
 #include "step_motor.h"
 #include "electromagnet.h"
+#include "note_decode.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -61,4 +62,14 @@ int play_sigle_note_by_freq(float freq)
 int play_sigle_note_by_len(float len)
 {
     return play_single_note(stepper_motor_action_by_len, len);
+}
+
+int play_sigle_note_by_midi(int midi)
+{
+    if (midi < 0 || midi > 127) {
+        ESP_LOGE(TAG, "Invalid MIDI number: %d", midi);
+        return ESP_ERR_INVALID_ARG;
+    }
+    float freq = convert_midi_to_freq(midi);
+    return play_sigle_note_by_freq(freq);
 }

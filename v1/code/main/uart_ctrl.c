@@ -106,6 +106,16 @@ static int do_cmd_clear_freq_table(void)
     return ESP_OK;
 }
 
+static int do_cmd_freq_table_show(void)
+{
+    int rc = freq_table_show();
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to show frequency table");
+        return rc;
+    }
+    ESP_LOGI(TAG, "Frequency table show success");
+    return ESP_OK;
+}
 
 /**
  * @brief
@@ -135,6 +145,8 @@ int dispatch_uart_cmd(char *cmd)
         rc = do_cmd_init_freq_table();
     } else if (strncmp(cmd, "clear freq table", strlen("clear freq table")) == 0) {
         rc = do_cmd_clear_freq_table();
+    } else if (strncmp(cmd, "freq table show", strlen("freq table show")) == 0){
+        rc = do_cmd_freq_table_show();
     } else {
         ESP_LOGW(TAG, "Invalid command: %s", cmd);
     }

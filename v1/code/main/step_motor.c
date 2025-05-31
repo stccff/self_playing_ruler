@@ -53,13 +53,13 @@
 // #define RULER_FREQ_MAX 349.23   // ≈25.61mm
 
 /* formula f=k/(L^2), L=(k/f)^(1/2) */
-#define k 194543.9295 // not ok
-
+#define SLOPE_K 210000.0
 
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
 #define FREQ_TABLE_FFT_SIZE 4096
 #define FREQ_TABLE_FFT_DELAY 1000 // ms
+
 
 /* ***************************************************************************************************************** */
 /*                                                 struct define                                                     */
@@ -82,10 +82,15 @@ rmt_encoder_handle_t g_accel_motor_encoder = NULL;
 rmt_encoder_handle_t g_decel_motor_encoder = NULL;
 
 struct PosFreqTlb *g_pf_table = NULL;
-size_t g_pf_table_size = 0;
+size_t g_pf_table_num = 0;
 /* ***************************************************************************************************************** */
 /*                                           function prototype                                                      */
 /* ***************************************************************************************************************** */
+static float get_freq_by_formula(float len)
+{
+    return (double)SLOPE_K / pow(len, 2);
+}
+
 /**
  * @brief Get the stepper motor absolute step by frequency
  *
@@ -94,10 +99,10 @@ size_t g_pf_table_size = 0;
  */
 static double get_pos_by_freq(double target_freq)
 {
-    // int table_size = sizeof(g_pf_table) / sizeof(g_pf_table[0]);
-    int table_size = g_pf_table_size;
-    if (g_pf_table == NULL || table_size == 0) {
-        ESP_LOGE(TAG, "g_pf_table=%p, table_size=%d", g_pf_table, table_size);
+    // int table_num = sizeof(g_pf_table) / sizeof(g_pf_table[0]);
+    int table_num = g_pf_table_num;
+    if (g_pf_table == NULL || table_num == 0) {
+        ESP_LOGE(TAG, "g_pf_table=%p, table_num=%d", g_pf_table, table_num);
         return -1;
     }
 
@@ -106,13 +111,13 @@ static double get_pos_by_freq(double target_freq)
         ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
         return -1;
     }
-    if (target_freq <= g_pf_table[table_size-1].freq) {
+    if (target_freq <= g_pf_table[table_num-1].freq) {
         ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
         return -1;
     }
 
     // linear interpolation
-    for (int i = 0; i < table_size - 1; i++) {
+    for (int i = 0; i < table_num - 1; i++) {
         // check the range
         if (g_pf_table[i].freq >= target_freq && target_freq >= g_pf_table[i+1].freq) {
             float f1 = g_pf_table[i].freq;
@@ -341,8 +346,8 @@ static int measure_frequency(float len, float *freq)
         ESP_LOGE(TAG, "measure play len:%f fail", len);
         return rc;
     }
-
-    rc = get_sound_frequency(freq, true);
+    float target = get_freq_by_formula(len);
+    rc = get_sound_frequency(target*0.75, target*1.25, freq, true);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "measure get sound frequency fail");
         return rc;
@@ -361,22 +366,22 @@ static int creat_freq_table(void)
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize sound FFT with error: %d", rc);
         g_pf_table = NULL;
-        g_pf_table_size = 0;
+        g_pf_table_num = 0;
         return rc;
     }
 
     int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
     int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN;
-    g_pf_table_size = step_mini_num + step_normal_num;
+    g_pf_table_num = step_mini_num + step_normal_num;
 
     if (g_pf_table != NULL) {
         free(g_pf_table);
         g_pf_table = NULL;
     }
-    g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb) * g_pf_table_size);
+    g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb) * g_pf_table_num);
     if (g_pf_table == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for frequency table");
-        g_pf_table_size = 0;
+        g_pf_table_num = 0;
         return ESP_ERR_NO_MEM;
     }
 
@@ -389,7 +394,7 @@ static int creat_freq_table(void)
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
             free(g_pf_table);
             g_pf_table = NULL;
-            g_pf_table_size = 0;
+            g_pf_table_num = 0;
             return rc;
         }
     }
@@ -404,7 +409,7 @@ static int creat_freq_table(void)
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
             free(g_pf_table);
             g_pf_table = NULL;
-            g_pf_table_size = 0;
+            g_pf_table_num = 0;
             return rc;
         }
     }
@@ -436,7 +441,7 @@ int freq_table_init(bool force_init)
             goto err;
         }
         // Write blob
-        rc = nvs_set_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, g_pf_table_size);
+        rc = nvs_set_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, g_pf_table_num * sizeof(struct PosFreqTlb));
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Error (%s) writing NVS blob", esp_err_to_name(rc));
             goto err;
@@ -447,7 +452,7 @@ int freq_table_init(bool force_init)
             ESP_LOGE(TAG, "Error (%s) committing NVS changes", esp_err_to_name(rc));
             goto err;
         }
-        ESP_LOGI(TAG, "Frequency table created and written to NVS, index num: %d", g_pf_table_size);
+        ESP_LOGI(TAG, "Frequency table created and written to NVS, index num: %d", g_pf_table_num);
     } else {
         // check if the frequency table is exists
         size_t tlb_size = 0;
@@ -467,12 +472,12 @@ int freq_table_init(bool force_init)
             if (g_pf_table != NULL) {
                 free(g_pf_table);
                 g_pf_table = NULL;
-                g_pf_table_size = 0;
+                g_pf_table_num = 0;
             }
             g_pf_table = (struct PosFreqTlb *)malloc(tlb_size);
             if (g_pf_table == NULL) {
                 ESP_LOGE(TAG, "Failed to allocate memory for getting frequency table");
-                g_pf_table_size = 0;
+                g_pf_table_num = 0;
                 rc = ESP_ERR_NO_MEM;
                 goto err;
             }
@@ -481,8 +486,8 @@ int freq_table_init(bool force_init)
                 ESP_LOGE(TAG, "Error (%s) reading NVS blob", esp_err_to_name(err));
                 goto err;
             }
-            g_pf_table_size = tlb_size;
-            ESP_LOGI(TAG, "Frequency table loaded from NVS, index num: %d", tlb_size / sizeof(struct PosFreqTlb));
+            g_pf_table_num = tlb_size / sizeof(struct PosFreqTlb);
+            ESP_LOGI(TAG, "Frequency table loaded from NVS, index num: %d", g_pf_table_num);
         }
     }
 
@@ -492,7 +497,7 @@ err:
             free(g_pf_table);
             g_pf_table = NULL;
         }
-        g_pf_table_size = 0;
+        g_pf_table_num = 0;
     }
     nvs_close(nvs_handle);
     return rc;
@@ -525,6 +530,20 @@ int freq_table_clear(void)
 err:
     nvs_close(nvs_handle);
 
+    return rc;
+}
+
+int freq_table_show(void)
+{
+    int rc = ESP_OK;
+    if (g_pf_table == NULL) {
+        ESP_LOGW(TAG, "frequency table is NULL");
+    } else {
+        ESP_LOGI(TAG, "frequency table:");
+        for (size_t i = 0; i < g_pf_table_num; i++) {
+            printf("%d %f\n", g_pf_table[i].pos, g_pf_table[i].freq);
+        }
+    }
     return rc;
 }
 

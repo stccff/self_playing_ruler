@@ -6,6 +6,7 @@
 #include "digital_mic.h"
 #include "signal_fft.h"
 #include "gpio_pin_config.h"
+#include "math.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -184,12 +185,19 @@ int sound_fft_init(float fft_size)
 /**
  * @brief Get the sound frequency, before calling this function, you should call sound_fft_init() to initialize the FFT size.
  *
+ * @param min
+ * @param max
  * @param freq [out] pointer to store the calculated frequency
+ * @param print
  * @return int
  */
-int get_sound_frequency(float *freq, bool print)
+int get_sound_frequency(float min, float max, float *freq, bool print)
 {
     int rc = ESP_OK;
+
+    if (min >= max || freq == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
 
     rc = read_mic_data(g_i2s_buff, g_fft_buff, g_fft_size, true);
     if (rc != ESP_OK) {
@@ -201,14 +209,28 @@ int get_sound_frequency(float *freq, bool print)
 
     // calculate frequency
     // find the peak value
-    size_t k = 0;
+
     float *buff = g_fft_buff;
     size_t size = g_fft_size;
-    for (size_t i = 1; i < size / 2; i++) {
+    int freq_min_index = (int)(min / ((float)EXAMPLE_SAMPLE_RATE / (float)size));
+    int freq_max_index = (int)(max / ((float)EXAMPLE_SAMPLE_RATE / (float)size));
+    if (freq_max_index >= size / 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    size_t k = 0;
+    buff[k] = 0;
+    if (print) {
+        ESP_LOGI(TAG, "find in [%f -- %f]", min, max);
+    }
+    // for (size_t i = 1; i < size / 2; i++) {
+    for (size_t i = freq_min_index; i <= freq_max_index; i++) {
         // printf("%f\n", buff[i]);
         if (buff[i] > buff[k]) {
             k = i;
         }
+    }
+    if (k == 0) {
+        return ESP_ERR_NOT_FOUND;
     }
     // Tri-node parabolic interpolation
     float delt = (buff[k+1] - buff[k-1]) / (4*buff[k] - 2*buff[k-1] - 2*buff[k+1]);

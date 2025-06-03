@@ -18,7 +18,7 @@
 #define MAGNET_BOTTOM_B_GPIO 13
 
 /* servo motor GPIOs */
-#define SERVO_STRUM_GPIO 21 // GPIO number for strum servo
+#define SERVO_STRUM_GPIO 47 // GPIO number for strum servo
 #ifdef CONFIG_SERVO_FRET
 #define SERVO_FRET_GPIO -1  // GPIO number for fret servo
 #endif // CONFIG_SERVO_FRET

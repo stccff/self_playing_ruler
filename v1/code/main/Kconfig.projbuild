@@ -1,0 +1,7 @@
+menu "Ruler Instrument Configuration"
+    config DEBUG_PRINT
+        bool "Enable debug log print"
+        default n
+        help
+            Enable or disable printing of debug information.
+endmenu

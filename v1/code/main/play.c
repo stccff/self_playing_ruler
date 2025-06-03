@@ -6,6 +6,7 @@
 #include "step_motor.h"
 #include "electromagnet.h"
 #include "note_decode.h"
+#include "driver/gptimer.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -20,32 +21,150 @@
 /* ***************************************************************************************************************** */
 /*                                                type define                                                        */
 /* ***************************************************************************************************************** */
+typedef enum {
+    ACT_POS,
+    ACT_LEN,
+    ACT_FREQ,
+    ACT_MAX_NUM,
+} stepper_motor_act_t;
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
+gptimer_handle_t g_gptimer = NULL;
 /* ***************************************************************************************************************** */
 /*                                              function prototype                                                   */
 /* ***************************************************************************************************************** */
-
-static int play_single_note(int (*stepper_act_func)(double), float param)
+static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
-    // release the ruler
-    electromagnet_set(0, POLARITY_NEGATIVE);
-    vTaskDelay(10 / portTICK_PERIOD_MS); // TODO: is this delay needed?
-    electromagnet_set(0, 0);
-    electromagnet_set(1, 0);
+    BaseType_t high_task_awoken = pdFALSE;
 
-    // move to the position
-    stepper_act_func(param);
-
-    // fret
-    electromagnet_set(0, POLARITY_POSITIVE);
-    electromagnet_set(1, POLARITY_NEGATIVE);
+    // stop timer immediately
+    gptimer_stop(timer);
 
     // strum
     servo_motor_action(3);
 
-    return ESP_OK;
+    // xQueueSendFromISR(queue, &ele, &high_task_awoken);
+    // return whether we need to yield at the end of ISR
+    return (high_task_awoken == pdTRUE);
+}
+
+void play_timer_init(void)
+{
+    // QueueHandle_t queue = xQueueCreate(10, sizeof(example_queue_element_t));
+    // if (!queue) {
+    //     ESP_LOGE(TAG, "Creating queue failed");
+    //     return;
+    // }
+
+    ESP_LOGI(TAG, "Create timer handle");
+    gptimer_config_t timer_config = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000, // 1MHz, 1 tick=1us
+    };
+    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &g_gptimer));
+
+    gptimer_event_callbacks_t cbs = {
+        .on_alarm = timer_on_alarm_cb,
+    };
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(g_gptimer, &cbs, NULL));
+
+    ESP_LOGI(TAG, "Enable timer");
+    ESP_ERROR_CHECK(gptimer_enable(g_gptimer));
+
+    // ESP_LOGI(TAG, "Start timer, stop it at alarm event");
+}
+
+static int play_single_note(stepper_motor_act_t act_type, void *param)
+{
+    int rc = ESP_OK;
+    /* release the ruler */
+    electromagnet_set(0, POLARITY_NEGATIVE);
+    vTaskDelay(10 / portTICK_PERIOD_MS); // TODO: is this delay needed?
+    electromagnet_set(0, 0);
+    electromagnet_set(1, 0);
+    vTaskDelay(10 / portTICK_PERIOD_MS); // TODO: is this delay needed?
+
+    /* get pos from other type */
+    int pos = 0;
+    switch (act_type) {
+    case ACT_POS:
+        int *tmp = (int *)param;
+        pos = *tmp;
+        break;
+    case ACT_LEN:
+        float *len = (float *)param;
+        pos = convert_len_to_pos(*len);
+        break;
+    case ACT_FREQ:
+        float *freq = (float *)param;
+        pos = convert_freq_to_pos(*freq);
+        break;
+    default:
+        ESP_LOGE(TAG, "act_type err: %d", act_type);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* move stepper motor and strum */
+    int stepper_motor_estimated_time = calc_stepper_motor_time_by_pos(pos);
+#ifdef CONFIG_DEBUG_PRINT
+    ESP_LOGI(TAG, "stepper motor action estimated time: %d ms", stepper_motor_estimated_time);
+#endif
+    if (stepper_motor_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
+
+        servo_motor_action(3); // strum start
+
+        rc = stepper_motor_action_by_pos(true, pos);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
+            return rc;
+        }
+
+        // after ruler move, press the ruler
+        electromagnet_set(0, POLARITY_POSITIVE);
+        electromagnet_set(1, POLARITY_NEGATIVE);
+
+        // strum: now touch the ruler)
+
+        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - stepper_motor_estimated_time));
+        // strum end
+    } else {
+        // start timer (time alart time: stepper_motor_estimated_time - SERVO_STRUM_PREPARE_TIME), strum in timer callback
+        gptimer_alarm_config_t alarm_config = {
+            .alarm_count = (stepper_motor_estimated_time - SERVO_STRUM_PREPARE_TIME) * 1000,
+        };
+        ESP_ERROR_CHECK(gptimer_set_alarm_action(g_gptimer, &alarm_config));
+        ESP_ERROR_CHECK(gptimer_start(g_gptimer));
+
+        rc = stepper_motor_action_by_pos(true, pos);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
+            return rc;
+        }
+
+        // after ruler move, press the ruler
+        electromagnet_set(0, POLARITY_POSITIVE);
+        electromagnet_set(1, POLARITY_NEGATIVE);
+
+        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - SERVO_STRUM_PREPARE_TIME));
+    }
+
+    // rc = stepper_motor_action_by_pos(true, pos);
+    // if (rc != ESP_OK) {
+    //     ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
+    //     return rc;
+    // }
+
+    // // press
+    // electromagnet_set(0, POLARITY_POSITIVE);
+    // electromagnet_set(1, POLARITY_NEGATIVE);
+
+    // // strum
+    // servo_motor_action(3);
+    // vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME));
+
+    return rc;
 }
 
 /**
@@ -56,12 +175,17 @@ static int play_single_note(int (*stepper_act_func)(double), float param)
  */
 int play_sigle_note_by_freq(float freq)
 {
-    return play_single_note(stepper_motor_action_by_freq, freq);
+    return play_single_note(ACT_FREQ, &freq);
 }
 
 int play_sigle_note_by_len(float len)
 {
-    return play_single_note(stepper_motor_action_by_len, len);
+    return play_single_note(ACT_LEN, &len);
+}
+
+int play_sigle_note_by_pos(int pos)
+{
+    return play_single_note(ACT_POS, &pos);
 }
 
 int play_sigle_note_by_midi(int midi)

@@ -144,7 +144,7 @@ static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, 
  * @param fft_size
  * @return int
  */
-int sound_fft_init(float fft_size)
+int sound_fft_init(int fft_size)
 {
     int rc = ESP_OK;
     if (fft_size != g_fft_size) {
@@ -169,7 +169,7 @@ int sound_fft_init(float fft_size)
             return ESP_ERR_NO_MEM;
         }
 
-        g_fft_buff = (float *)malloc(fft_size * sizeof(float));
+        g_fft_buff = (float *)aligned_alloc(16, fft_size * sizeof(float));
         if (g_fft_buff == NULL) {
             ESP_LOGE(TAG, "Failed to allocate memory for FFT buffer");
             free(g_i2s_buff);

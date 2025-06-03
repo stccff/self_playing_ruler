@@ -12,6 +12,7 @@
 #include "digital_mic.h"
 #include "electromagnet.h"
 #include "tusb_midi.h"
+#include "play.h"
 
 /*
  vTaskGetRunTimeStats() 使用
@@ -44,11 +45,12 @@ void app_main(void)
     init_nvs_for_freq_table();
     stepper_motor_init();
     midi_init();
+    play_timer_init();
     uart_init();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
 
-    char *buff = (char *)malloc(1024);
+    char *buff = (char *)malloc(2048);
     print_task_info(buff);
     free(buff);
 

@@ -17,6 +17,7 @@
 #include "play.h"
 #include "digital_mic.h"
 #include "gpio_pin_config.h"
+#include "electromagnet.h"
 
 /* ***************************************************************************************************************** */
 /*                                                 macro define                                                            */
@@ -27,6 +28,7 @@
 #define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
 
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
+// #define STEP_MOTOR_FORCE_LOCK_STEP 4
 
 #define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
 
@@ -41,19 +43,21 @@
 #define LEAD_SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 // ruler features
-#define RULER_LEN_MIN 13.3   // mm
+#define RULER_LEN_MIN 16.52   // mm
 #define RULER_LEN_MAX 65.52  // mm
 
 #define RULER_LEN_MUSIC_MIN 22.0 // mm
-#define RULER_LEN_MUSIC_MAX 62.0 // mm
+#define RULER_LEN_MUSIC_MAX 65.0 // mm
 
-#define RULLER_FREQ_STEP_CHANGE_LEN 32.0 // mm
+#define RULLER_FREQ_SAMPLE_NUM 60
+#define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
 
 // #define RULER_FREQ_MIN 73.42    // ≈55.80mm
 // #define RULER_FREQ_MAX 349.23   // ≈25.61mm
 
-/* formula f=k/(L^2), L=(k/f)^(1/2) */
-#define SLOPE_K 210000.0
+/* formula f=k/(L^2)+b, L=(k/(f-b))^(1/2) */
+#define SLOPE_K 172767.3698
+#define INTERCEPT_B 20.1147953
 
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
@@ -88,7 +92,7 @@ size_t g_pf_table_num = 0;
 /* ***************************************************************************************************************** */
 static float get_freq_by_formula(float len)
 {
-    return (double)SLOPE_K / pow(len, 2);
+    return (double)SLOPE_K / pow(len, 2) + INTERCEPT_B;
 }
 
 /**
@@ -97,7 +101,7 @@ static float get_freq_by_formula(float len)
  * @param target_freq
  * @return double
  */
-static double get_pos_by_freq(double target_freq)
+int convert_freq_to_pos(double target_freq)
 {
     // int table_num = sizeof(g_pf_table) / sizeof(g_pf_table[0]);
     int table_num = g_pf_table_num;
@@ -107,11 +111,11 @@ static double get_pos_by_freq(double target_freq)
     }
 
     // the boundary check
-    if (target_freq >= g_pf_table[0].freq) {
+    if (target_freq > g_pf_table[0].freq) {
         ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
         return -1;
     }
-    if (target_freq <= g_pf_table[table_num-1].freq) {
+    if (target_freq < g_pf_table[table_num-1].freq) {
         ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
         return -1;
     }
@@ -128,7 +132,7 @@ static double get_pos_by_freq(double target_freq)
             // do linear interpolation
             float t = (target_freq - f1) / (f2 - f1);
             float interpolated_len = p1 + t * (p2 - p1);
-            return interpolated_len;
+            return round(interpolated_len);
         }
     }
 
@@ -141,13 +145,13 @@ static double get_pos_by_freq(double target_freq)
  * @param len
  * @return int
  */
-static int convert_len_to_pos(double len)
+int convert_len_to_pos(double len)
 {
     if (len < RULER_LEN_MIN || len > RULER_LEN_MAX) {
         ESP_LOGE(TAG, "Invalid length: %f, valid range [%f, %f] mm", len, RULER_LEN_MIN, RULER_LEN_MAX);
         return -1;
     }
-    return (int)((len - RULER_LEN_MIN) / (RULER_LEN_MAX - RULER_LEN_MIN) * MAX_STEP);
+    return (int)round((len - RULER_LEN_MIN) / (RULER_LEN_MAX - RULER_LEN_MIN) * MAX_STEP);
 }
 
 static float convert_pos_to_len(int pos)
@@ -173,21 +177,27 @@ static int convert_pos_to_step(int pos)
     return step;
 }
 
-int stepper_motor_action_by_len(double len)
+/**
+ * @brief move stepper motor to specified position. stepper_motor_async_wait_done must be called, when use async mod
+ *
+ * @param is_sync sync/async mode
+ * @param pos absolute step of stepper motor
+ * @return int
+ */
+int stepper_motor_action_by_pos(bool is_sync, int pos) // TODO: why memory error occurred in rmt??? when I use async mode
 {
-    int pos = convert_len_to_pos(len);
-    if (pos < 0) {
-        ESP_LOGE(TAG, "convert_len_to_pos fail! len=%f", len);
-        return 0;
-    }
-    return stepper_motor_action_by_pos(pos);
-}
+#ifdef CONFIG_DEBUG_PRINT
+        int64_t start = esp_timer_get_time();
+#endif
 
-int stepper_motor_action_by_pos(int pos)
-{
+    if (pos < 0 || pos > MAX_STEP) {
+        ESP_LOGE(TAG, "invalid pos: %d", pos);
+        return ESP_ERR_INVALID_ARG;
+    }
+
     int step = convert_pos_to_step(pos);
-    if (step == 0) {
-        return step;
+    if (step == 0) { // do nothing
+        return ESP_OK;
     }
 
     int dir = (step > 0) ? STEP_MOTOR_SPIN_DIR_CLOCKWISE : STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
@@ -221,30 +231,65 @@ int stepper_motor_action_by_pos(int pos)
         g_tx_config.loop_count = 0;
         ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_decel_motor_encoder, &decel_samples, sizeof(decel_samples), &g_tx_config));
     }
+
+    if (is_sync) {
+        // wait all transactions finished
+        ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+        gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
+    }
+
+#ifdef CONFIG_DEBUG_PRINT
+        int64_t end = esp_timer_get_time();
+        ESP_LOGI(TAG, "stepper motor action execution time: %lld ms", (end - start) / 1000);
+#endif
+
+    return ESP_OK;
+}
+
+/**
+ * @brief wait for stepper motor move done
+ *
+ */
+void stepper_motor_async_wait_done(void)
+{
     // wait all transactions finished
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
+
     vTaskDelay(pdMS_TO_TICKS(10)); //TODO: is need?
     gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
+}
 
-    return step;
+int stepper_motor_action_by_len(bool is_sync, double len)
+{
+    int rc = ESP_OK;
+    int pos = convert_len_to_pos(len);
+    if (pos < 0) {
+        ESP_LOGE(TAG, "convert_len_to_pos fail! len=%f", len);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    rc = stepper_motor_action_by_pos(is_sync, pos);
+    return rc;
 }
 
 /**
  * @brief stepper motor act as the input freq
  *
  * @param freq
- * @return int step numbers
+ * @return int
  */
-int stepper_motor_action_by_freq(double freq)
+int stepper_motor_action_by_freq(bool is_sync, double freq)
 {
-    int pos = get_pos_by_freq(freq);
+    int rc = ESP_OK;
+    int pos = convert_freq_to_pos(freq);
     if (pos < 0) {
-        ESP_LOGE(TAG, "get_pos_by_freq fail! freq=%f", freq);
-        return 0;
+        ESP_LOGE(TAG, "convert_freq_to_pos fail! freq=%f", freq);
+        return ESP_ERR_INVALID_RESPONSE;
     }
-    int step = stepper_motor_action_by_pos(pos);
-    // ESP_LOGI(TAG, "freq = %f, len = %f, step = %d", freq, len, step); // TODO:
-    return step;
+    rc = stepper_motor_action_by_pos(is_sync, pos);
+    ESP_LOGI(TAG, "freq = %f, pos = %d, len = %f", freq, pos, convert_pos_to_len(pos));
+    return rc;
 }
 
 static void action_init(void)
@@ -357,7 +402,7 @@ static int measure_frequency(float len, float *freq)
         return rc;
     }
     float target = get_freq_by_formula(len);
-    rc = get_sound_frequency(target*0.75, target*1.25, freq, true);
+    rc = get_sound_frequency(target*(1-RULLER_FREQ_SAMPLE_TOLERANCE), target*(1+RULLER_FREQ_SAMPLE_TOLERANCE), freq, true);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "measure get sound frequency fail");
         return rc;
@@ -368,7 +413,7 @@ static int measure_frequency(float len, float *freq)
     return rc;
 }
 
-static int creat_freq_table(void)
+static int create_freq_table(void)
 {
     int rc = ESP_OK;
 
@@ -380,9 +425,10 @@ static int creat_freq_table(void)
         return rc;
     }
 
-    int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
-    int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN;
-    g_pf_table_num = step_mini_num + step_normal_num;
+    // int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
+    // int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN + 1;
+    // g_pf_table_num = step_mini_num + step_normal_num;
+    g_pf_table_num = RULLER_FREQ_SAMPLE_NUM;
 
     if (g_pf_table != NULL) {
         free(g_pf_table);
@@ -395,10 +441,34 @@ static int creat_freq_table(void)
         return ESP_ERR_NO_MEM;
     }
 
-    float step_len = 0.5;
-    for (int i = 0; i < step_mini_num; i++) {
-        float len = RULER_LEN_MUSIC_MIN + i * step_len;
-        g_pf_table[i].pos = convert_len_to_pos(len);
+    // remove backlash error
+    electromagnet_set(0, 0);
+    electromagnet_set(0, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+    rc = stepper_motor_action_by_pos(true, 0);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "remove backlash, set pos error");
+        return rc;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    double step_len_start = LEN_PER_FULL_STEP;
+    double Sn_1 = RULER_LEN_MUSIC_MAX - RULER_LEN_MUSIC_MIN;
+    size_t n = g_pf_table_num;
+    float a1 = step_len_start;
+    double d = (Sn_1 - (n-1) * a1) * 2 / ((n-1) * (n-2));
+    float x1 = RULER_LEN_MUSIC_MIN;
+    for (int i = 0; i < g_pf_table_num; i++) { // i --> n-1
+        double len = x1 + i * a1 + i * (i - 1) * d / 2;
+        int pos = convert_len_to_pos(len);
+        if (pos < 0) {
+            ESP_LOGE(TAG, "convert_len_to_pos fail! length: %f", len);
+            free(g_pf_table);
+            g_pf_table = NULL;
+            g_pf_table_num = 0;
+            return ESP_FAIL;
+        }
+        g_pf_table[i].pos = pos;
         rc = measure_frequency(len, &g_pf_table[i].freq);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
@@ -409,28 +479,12 @@ static int creat_freq_table(void)
         }
     }
 
-    step_len = 1;
-    struct PosFreqTlb *table = &g_pf_table[step_mini_num];
-    for (int i = 0; i < step_normal_num; i++) {
-        float len = RULLER_FREQ_STEP_CHANGE_LEN + i * step_len;
-        table[i].pos = convert_len_to_pos(len);
-        rc = measure_frequency(len, &table[i].freq);
-        if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
-            free(g_pf_table);
-            g_pf_table = NULL;
-            g_pf_table_num = 0;
-            return rc;
-        }
-    }
-
-
     // print
 
     return ESP_OK;
 }
 
-int freq_table_init(bool force_init)
+int freq_table_init(bool force_init) // TODO: need check stepper motor controler's mode, before use nvs F-P table
 {
     int rc = ESP_OK;
 
@@ -445,7 +499,7 @@ int freq_table_init(bool force_init)
     if (force_init) {
         /* create table and write to nvs */
         // creat table
-        rc = creat_freq_table();
+        rc = create_freq_table();
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Error (%s) creating frequency table", esp_err_to_name(rc));
             goto err;
@@ -556,6 +610,44 @@ int freq_table_show(void)
         }
     }
     return rc;
+}
+
+/**
+ * @brief calculate the estimated time
+ *
+ * @return int >=0 ms
+ *             <0 error
+ */
+int calc_stepper_motor_time_by_pos(int pos)
+{
+    if (pos < 0 || pos > MAX_STEP) {
+        ESP_LOGE(TAG, "invalid pos: %d", pos);
+        return -1;
+    }
+
+    float cost_time = 0;
+
+    // T(p) = kp + b
+    static const float k = -(1.0/SPEED_LOW_HZ - 1.0/SPEED_HZ) / (SAMPLE_POINTS - 1);
+    static const float b = 1.0/SPEED_LOW_HZ;
+    // T(n) = t1+t2+..+tn = n * (T(1) + T(n)) / 2 = n * (b + kn + b) / 2
+#define TOTAL_TIME(n) ((n) * (b + k*(n) + b) / 2)
+
+    int step_num = abs(pos - g_curr_pos);
+    if (step_num == 0) {
+        return 0;
+    }
+
+    if (step_num <= SAMPLE_POINTS * 2) {
+        float acc_time = TOTAL_TIME(step_num);
+        cost_time += acc_time * 2;
+    } else {
+        float acc_time = TOTAL_TIME(SAMPLE_POINTS);
+        float flat_time = (step_num - SAMPLE_POINTS * 2) * (1.0/SPEED_HZ);
+        cost_time += acc_time * 2 + flat_time;
+    }
+
+    return round(cost_time * 1000);
 }
 
 void stepper_motor_init(void)

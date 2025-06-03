@@ -10,6 +10,7 @@
 /*                                               macro define                                                        */
 /* ***************************************************************************************************************** */
 #define TAG "sound_fft"
+
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
 /* ***************************************************************************************************************** */
@@ -64,7 +65,7 @@ int fft_init(int fft_size)
     if (g_fft_window != NULL) {
         free(g_fft_window);
     }
-    g_fft_window = (float *)malloc(fft_size * sizeof(float));
+    g_fft_window = (float *)aligned_alloc(16, fft_size * sizeof(float));
     if (g_fft_window == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for window");
         return ESP_ERR_NO_MEM;

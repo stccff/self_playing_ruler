@@ -65,14 +65,12 @@ static int do_cmd_play(char *cmd)
     float freq = convert_midi_to_freq(midi);
     // ESP_LOGI(TAG, "midi = %d, freq = %f", midi, freq);
 
-    play_sigle_note_by_freq(freq);
-
-    return ESP_OK;
+    return play_sigle_note_by_freq(freq);
 }
 
-static int do_cmd_test(char *cmd)
+static int do_cmd_testlen(char *cmd)
 {
-    char* data = cmd + strlen("test ");
+    char* data = cmd + strlen("testlen ");
     double len = 0;
     int rc = sscanf(data, "%lf\n", &len);
     if (rc != 1) {
@@ -80,9 +78,20 @@ static int do_cmd_test(char *cmd)
         return ESP_ERR_INVALID_ARG;
     }
 
-    play_sigle_note_by_len(len);
+    return play_sigle_note_by_len(len);
+}
 
-    return ESP_OK;
+static int do_cmd_testpos(char *cmd)
+{
+    char* data = cmd + strlen("testpos ");
+    int pos = 0;
+    int rc = sscanf(data, "%d\n", &pos);
+    if (rc != 1) {
+        ESP_LOGE(TAG, "Invalid test command: %s", cmd);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    return play_sigle_note_by_pos(pos);
 }
 
 static int do_cmd_init_freq_table(void)
@@ -130,6 +139,21 @@ static int do_cmd_set_midi_chan(char *data)
     return ESP_OK;
 }
 
+static int do_cmd_testmagnet(char *data)
+{
+    int index = 0;
+    int polary = 0;
+    int rc = sscanf(data, "%d %d\n", &index, &polary);
+    if (rc != 2) {
+        ESP_LOGE(TAG, "Invalid test magnet command: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    electromagnet_set(index, polary);
+
+    return ESP_OK;
+}
+
 /**
  * @brief
  *
@@ -160,8 +184,12 @@ int dispatch_uart_cmd(char *cmd)
         rc = do_cmd_set(cmd);
     } else if (strncmp(cmd, "p", strlen("p")) == 0) {
         rc = do_cmd_play(cmd);
-    } else if (strncmp(cmd, "test", strlen("test")) == 0) {
-        rc = do_cmd_test(cmd);
+    } else if (strncmp(cmd, "testlen", strlen("testlen")) == 0) {
+        rc = do_cmd_testlen(cmd);
+    } else if (strncmp(cmd, "testpos", strlen("testpos")) == 0) {
+        rc = do_cmd_testpos(cmd);
+    } else if (strncmp(cmd, "testmagnet", strlen("testmagnet")) == 0) {
+        rc = do_cmd_testmagnet(cmd + strlen("testmagnet"));
     } else {
         ESP_LOGW(TAG, "Invalid command: %s", cmd);
     }

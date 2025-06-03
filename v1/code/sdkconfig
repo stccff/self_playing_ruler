@@ -559,6 +559,12 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# Ruler Instrument Configuration
+#
+CONFIG_DEBUG_PRINT=y
+# end of Ruler Instrument Configuration
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

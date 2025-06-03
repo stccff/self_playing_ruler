@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 extern void i2s_driver_init(void);
-extern int sound_fft_init(float fft_size);
+extern int sound_fft_init(int fft_size);
 extern int get_sound_frequency(float min, float max, float *freq, bool print);
 
 #endif // __DIGITAL_MIC_H

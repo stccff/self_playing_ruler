@@ -30,26 +30,63 @@
 
 static const char *TAG = "UART_CTRL";
 
-#define BUF_SIZE (1024)
 
-
-// double k = 229049.0652;
-// #define TOTAL_LENGTH 44.5   // mm
-// #define TOTAL_POS 300       // steps
-// #define LENGHT_MIN 13.5     // mm
-// #define LENGHT_MAX 57.5     // mm
 
 
 /* ***************************************************************************************************************** */
-/*                                           function prototype                                                      */
+/*                                               macro define                                                        */
 /* ***************************************************************************************************************** */
+#define TERMINAL_BUFF_SIZE (1024)
+/* ***************************************************************************************************************** */
+/*                                                type define                                                        */
+/* ***************************************************************************************************************** */
+typedef int (*cmd_cb_t)(char*);
+/* ***************************************************************************************************************** */
+/*                                               struct define                                                       */
+/* ***************************************************************************************************************** */
+typedef struct {
+    char *cmd;
+    cmd_cb_t func;
+} cmd_table_t;
+
+/* ***************************************************************************************************************** */
+/*                                             function prototype                                                    */
+/* ***************************************************************************************************************** */
+static int do_cmd_init_freq_table(char *data);
+static int do_cmd_clear_freq_table(char *data);
+static int do_cmd_freq_table_show(char *data);
+static int do_cmd_set_midi_chan(char *data);
+static int do_cmd_init_freq_table(char *data);
+static int do_cmd_set(char *data);
+static int do_cmd_play(char *data);
+static int do_cmd_testlen(char *data);
+static int do_cmd_testpos(char *data);
+static int do_cmd_testmagnet(char *data);
+static int do_cmd_testmagnet2(char *data);
+
+/* ***************************************************************************************************************** */
+/*                                              global variable                                                      */
+/* ***************************************************************************************************************** */
+cmd_table_t g_cmd_table[] = {
+    {"init freq table", do_cmd_init_freq_table},
+    {"clear freq table", do_cmd_clear_freq_table},
+    {"freq table show", do_cmd_freq_table_show},
+    {"set midi chan", do_cmd_set_midi_chan},
+    {"init freq table", do_cmd_init_freq_table},
+    {"set", do_cmd_set},
+    {"p", do_cmd_play},
+    {"testlen", do_cmd_testlen},
+    {"testpos", do_cmd_testpos},
+    {"testmagnet2", do_cmd_testmagnet2},
+    {"testmagnet", do_cmd_testmagnet},
+};
 
 
-static int do_cmd_set(char *cmd)
+static int do_cmd_set(char *data)
 {
     int base, scale;
-    if (sscanf(cmd, "set %d %d", &base, &scale) != 2) {
-        ESP_LOGE(TAG, "Invalid set command: %s", cmd);
+    if (sscanf(data, "%d %d", &base, &scale) != 2) {
+        ESP_LOGE(TAG, "Invalid set command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
     return set_base_and_scale(base, scale);
@@ -59,42 +96,40 @@ static int do_cmd_set(char *cmd)
 #define POLARITY_POSITIVE 1
 #define POLARITY_NEGATIVE -1
 
-static int do_cmd_play(char *cmd)
+static int do_cmd_play(char *data)
 {
-    int midi = parse_simple_note_to_midi(cmd + strlen("p "));
+    int midi = parse_simple_note_to_midi(data);
     float freq = convert_midi_to_freq(midi);
     // ESP_LOGI(TAG, "midi = %d, freq = %f", midi, freq);
 
     return play_sigle_note_by_freq(freq);
 }
 
-static int do_cmd_testlen(char *cmd)
+static int do_cmd_testlen(char *data)
 {
-    char* data = cmd + strlen("testlen ");
     double len = 0;
     int rc = sscanf(data, "%lf\n", &len);
     if (rc != 1) {
-        ESP_LOGE(TAG, "Invalid test command: %s", cmd);
+        ESP_LOGE(TAG, "Invalid test command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
 
     return play_sigle_note_by_len(len);
 }
 
-static int do_cmd_testpos(char *cmd)
+static int do_cmd_testpos(char *data)
 {
-    char* data = cmd + strlen("testpos ");
     int pos = 0;
     int rc = sscanf(data, "%d\n", &pos);
     if (rc != 1) {
-        ESP_LOGE(TAG, "Invalid test command: %s", cmd);
+        ESP_LOGE(TAG, "Invalid test command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
 
     return play_sigle_note_by_pos(pos);
 }
 
-static int do_cmd_init_freq_table(void)
+static int do_cmd_init_freq_table(char *data)
 {
     int rc = freq_table_init(true); // force init
     if (rc != ESP_OK) {
@@ -105,7 +140,7 @@ static int do_cmd_init_freq_table(void)
     return ESP_OK;
 }
 
-static int do_cmd_clear_freq_table(void)
+static int do_cmd_clear_freq_table(char *data)
 {
     int rc = freq_table_clear();
     if (rc != ESP_OK) {
@@ -116,7 +151,7 @@ static int do_cmd_clear_freq_table(void)
     return ESP_OK;
 }
 
-static int do_cmd_freq_table_show(void)
+static int do_cmd_freq_table_show(char *data)
 {
     int rc = freq_table_show();
     if (rc != ESP_OK) {
@@ -132,7 +167,7 @@ static int do_cmd_set_midi_chan(char *data)
     int ch = 0;
     int rc = sscanf(data, "%d\n", &ch);
     if (rc != 1) {
-        ESP_LOGE(TAG, "Invalid set channel command: %s", data);
+        ESP_LOGE(TAG, "Invalid set channel command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
     set_midi_channel(ch);
@@ -145,7 +180,7 @@ static int do_cmd_testmagnet(char *data)
     int polary = 0;
     int rc = sscanf(data, "%d %d\n", &index, &polary);
     if (rc != 2) {
-        ESP_LOGE(TAG, "Invalid test magnet command: %s", data);
+        ESP_LOGE(TAG, "Invalid test magnet command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -153,6 +188,25 @@ static int do_cmd_testmagnet(char *data)
 
     return ESP_OK;
 }
+
+static int do_cmd_testmagnet2(char *data)
+{
+    int index = 0;
+    int polary = 0;
+    int index2 = 0;
+    int polary2 = 0;
+    int rc = sscanf(data, "%d %d %d %d\n", &index, &polary, &index2, &polary2);
+    if (rc != 4) {
+        ESP_LOGE(TAG, "Invalid test magnet command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    electromagnet_set(index, polary);
+    electromagnet_set(index2, polary2);
+
+    return ESP_OK;
+}
+
 
 /**
  * @brief
@@ -172,46 +226,34 @@ int dispatch_uart_cmd(char *cmd)
         return ESP_OK;
     }
 
-    if (strncmp(cmd, "init freq table", strlen("init freq table")) == 0) {
-        rc = do_cmd_init_freq_table();
-    } else if (strncmp(cmd, "clear freq table", strlen("clear freq table")) == 0) {
-        rc = do_cmd_clear_freq_table();
-    } else if (strncmp(cmd, "freq table show", strlen("freq table show")) == 0){
-        rc = do_cmd_freq_table_show();
-    } else if (strncmp(cmd, "set midi chan", strlen("set midi chan")) == 0) {
-        rc = do_cmd_set_midi_chan(cmd + strlen("set midi chan")); // TODO: other like this
-    } else if (strncmp(cmd, "set", strlen("set")) == 0) {
-        rc = do_cmd_set(cmd);
-    } else if (strncmp(cmd, "p", strlen("p")) == 0) {
-        rc = do_cmd_play(cmd);
-    } else if (strncmp(cmd, "testlen", strlen("testlen")) == 0) {
-        rc = do_cmd_testlen(cmd);
-    } else if (strncmp(cmd, "testpos", strlen("testpos")) == 0) {
-        rc = do_cmd_testpos(cmd);
-    } else if (strncmp(cmd, "testmagnet", strlen("testmagnet")) == 0) {
-        rc = do_cmd_testmagnet(cmd + strlen("testmagnet"));
-    } else {
-        ESP_LOGW(TAG, "Invalid command: %s", cmd);
+    for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
+        if (strncmp(cmd, g_cmd_table[i].cmd, strlen(g_cmd_table[i].cmd)) == 0) {
+            rc = g_cmd_table[i].func(cmd + strlen(g_cmd_table[i].cmd));
+            return rc;
+        }
     }
-    return rc;
+
+    ESP_LOGW(TAG, "Invalid command: %s", cmd);
+
+    return ESP_OK;
 }
 
 /**
- * @brief a uart terminal TODO: need reconstruction
+ * @brief a uart terminal TODO: need reconstruction(when two cmd's interval <10ms, may lost 2nd cmd, becasue 1st's CR/LF)
  *
  * @param cmd_parse_func
  * @param loop_delay
  */
 static void start_terminal(int (*cmd_parse_func)(char*),uint32_t loop_delay)
 {
-    char *data = (char *) malloc(BUF_SIZE);
+    char *data = (char *) malloc(TERMINAL_BUFF_SIZE);
 
     int total_len = 0;
     uint32_t no_data_num = 0;
     bool is_end = false;
     while (1) {
         // Read data from the UART
-        int len = uart_read_bytes(ECHO_UART_PORT_NUM, &data[total_len], (BUF_SIZE - total_len - 2), loop_delay / portTICK_PERIOD_MS);
+        int len = uart_read_bytes(ECHO_UART_PORT_NUM, &data[total_len], (TERMINAL_BUFF_SIZE - total_len - 2), loop_delay / portTICK_PERIOD_MS);
         if (len > 0) {
             while (len > 0) {
                 if (data[total_len] == '\b') {
@@ -247,11 +289,6 @@ static void start_terminal(int (*cmd_parse_func)(char*),uint32_t loop_delay)
             no_data_num = 0;
         } else { // timeout
             no_data_num++;
-            if (no_data_num == 10 * 1000 / loop_delay) { // TODO: move to timer
-                // servo_motor_action(1); // avoid stalling
-                electromagnet_set(0, 0); // turn off electromagnet
-                electromagnet_set(1, 0); // turn off electromagnet
-            }
             continue;
         }
         // ESP_LOGI(TAG, "data = %s", data);
@@ -284,7 +321,7 @@ static void uart_task(void *arg)
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(50)); // wait ESP_LOG print done
 
-    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, BUF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
+    ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, TERMINAL_BUFF_SIZE * 2, 0, 0, NULL, intr_alloc_flags));
     ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, ECHO_TEST_TXD, ECHO_TEST_RXD, ECHO_TEST_RTS, ECHO_TEST_CTS));
 

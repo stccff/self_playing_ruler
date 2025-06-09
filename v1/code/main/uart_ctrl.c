@@ -77,7 +77,7 @@ cmd_table_t g_cmd_table[] = {
     {"p", do_cmd_play},
     {"testlen", do_cmd_testlen},
     {"testpos", do_cmd_testpos},
-    {"testmagnet2", do_cmd_testmagnet2},
+    {"testmagnet2", do_cmd_testmagnet2}, // TODO: 可能识别错误，需要修改终端处理逻辑
     {"testmagnet", do_cmd_testmagnet},
 };
 

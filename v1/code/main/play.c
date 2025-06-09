@@ -62,7 +62,7 @@ void play_timer_init(void)
     //     return;
     // }
 
-    ESP_LOGI(TAG, "Create timer handle");
+    ESP_LOGI(TAG, "Create stepper motor timer handle");
     gptimer_config_t timer_config = {
         .clk_src = GPTIMER_CLK_SRC_DEFAULT,
         .direction = GPTIMER_COUNT_UP,
@@ -79,17 +79,19 @@ void play_timer_init(void)
     ESP_ERROR_CHECK(gptimer_enable(g_gptimer));
 
     // ESP_LOGI(TAG, "Start timer, stop it at alarm event");
+
+    ESP_LOGI(TAG, "Create e-magnet timer handle");
 }
 
 static int play_single_note(stepper_motor_act_t act_type, void *param)
 {
     int rc = ESP_OK;
     /* release the ruler */
-    electromagnet_set(0, POLARITY_NEGATIVE);
-    vTaskDelay(10 / portTICK_PERIOD_MS); // TODO: is this delay needed?
+    // electromagnet_set(0, POLARITY_NEGATIVE);
+    // vTaskDelay(10 / portTICK_PERIOD_MS);
     electromagnet_set(0, 0);
     electromagnet_set(1, 0);
-    vTaskDelay(10 / portTICK_PERIOD_MS); // TODO: is this delay needed?
+    vTaskDelay(30 / portTICK_PERIOD_MS);
 
     /* get pos from other type */
     int pos = 0;

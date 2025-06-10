@@ -4,4 +4,17 @@ menu "Ruler Instrument Configuration"
         default n
         help
             Enable or disable printing of debug information.
+
+    choice RULER_INSTRUMENT_HARDWARE_VERSION
+        prompt "Hardware version"
+        help
+            To adapte different hw version
+        default HW_A_VER_1_1
+
+        config HW_A_VER_1_0
+            bool "A_V1.0"
+
+        config HW_A_VER_1_1
+            bool "A_V1.1"
+    endchoice
 endmenu

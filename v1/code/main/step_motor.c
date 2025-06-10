@@ -23,12 +23,10 @@
 /*                                                 macro define                                                            */
 /* ***************************************************************************************************************** */
 
-#define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
-#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
-#define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
+// hardware v1.0
+#ifdef CONFIG_HW_A_VER_1_0
 
-#define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
-// #define STEP_MOTOR_FORCE_LOCK_STEP 4
+#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
 
 #define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
 
@@ -40,7 +38,7 @@
 #define MAX_FULL_STEP 300 // TODO: test
 #define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
 #define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
-#define LEAD_SCREW_BACKLASH (2 * (1 << MODE)) // step
+#define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 // ruler features
 #define RULER_LEN_MIN 16.52   // mm
@@ -48,12 +46,40 @@
 
 #define RULER_LEN_MUSIC_MIN 22.0 // mm
 #define RULER_LEN_MUSIC_MAX 65.0 // mm
+#endif
+
+// hardware v1.1
+#ifdef CONFIG_HW_A_VER_1_1
+
+#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
+
+#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+
+#define SAMPLE_POINTS (20 * (1 << MODE))
+#define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
+#define SPEED_HZ (1200 * (1 << MODE))
+
+#define LEN_PER_FULL_STEP 0.15 // mm
+#define MAX_FULL_STEP 300 // TODO: test
+#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
+#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
+#define SCREW_BACKLASH (2 * (1 << MODE)) // step
+
+// ruler features
+#define RULER_LEN_MIN 14.52   // mm
+#define RULER_LEN_MAX 64.67  // mm
+
+#define RULER_LEN_MUSIC_MIN 22.0 // mm
+#define RULER_LEN_MUSIC_MAX 64.5 // mm
+#endif
 
 #define RULLER_FREQ_SAMPLE_NUM 60
 #define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
 
-// #define RULER_FREQ_MIN 73.42    // ≈55.80mm
-// #define RULER_FREQ_MAX 349.23   // ≈25.61mm
+#define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
+#define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
+#define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
+
 
 /* formula f=k/(L^2)+b, L=(k/(f-b))^(1/2) */
 #define SLOPE_K 172767.3698

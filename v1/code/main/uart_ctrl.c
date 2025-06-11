@@ -37,6 +37,7 @@ static const char *TAG = "UART_CTRL";
 /*                                               macro define                                                        */
 /* ***************************************************************************************************************** */
 #define TERMINAL_BUFF_SIZE (1024)
+#define CMD_MAX_LEN (32)
 /* ***************************************************************************************************************** */
 /*                                                type define                                                        */
 /* ***************************************************************************************************************** */
@@ -47,6 +48,8 @@ typedef int (*cmd_cb_t)(char*);
 typedef struct {
     char *cmd;
     cmd_cb_t func;
+    char *param_info;
+    char *help_info;
 } cmd_table_t;
 
 /* ***************************************************************************************************************** */
@@ -56,30 +59,41 @@ static int do_cmd_init_freq_table(char *data);
 static int do_cmd_clear_freq_table(char *data);
 static int do_cmd_freq_table_show(char *data);
 static int do_cmd_set_midi_chan(char *data);
-static int do_cmd_init_freq_table(char *data);
 static int do_cmd_set(char *data);
 static int do_cmd_play(char *data);
 static int do_cmd_testlen(char *data);
 static int do_cmd_testpos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
+static int do_cmd_help(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
 /* ***************************************************************************************************************** */
 cmd_table_t g_cmd_table[] = {
-    {"init freq table", do_cmd_init_freq_table},
-    {"clear freq table", do_cmd_clear_freq_table},
-    {"freq table show", do_cmd_freq_table_show},
-    {"set midi chan", do_cmd_set_midi_chan},
-    {"init freq table", do_cmd_init_freq_table},
-    {"set", do_cmd_set},
-    {"p", do_cmd_play},
-    {"testlen", do_cmd_testlen},
-    {"testpos", do_cmd_testpos},
-    {"testmagnet2", do_cmd_testmagnet2}, // TODO: 可能识别错误，需要修改终端处理逻辑
-    {"testmagnet", do_cmd_testmagnet},
+    {"help", do_cmd_help, "", ""},
+    {"ftinit", do_cmd_init_freq_table, "", "init frequency table"},
+    {"ftclear", do_cmd_clear_freq_table, "", "clear frequency table"},
+    {"ftshow", do_cmd_freq_table_show, "", "print frequency table"},
+    {"midich", do_cmd_set_midi_chan, "<ch>", "set actived midi input channel"},
+    {"testlen", do_cmd_testlen, "<len>", "ruler play by length"},
+    {"testpos", do_cmd_testpos, "<pos>", "ruler play by stepper motor absolute position"},
+    {"testmagnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
+    {"testmagnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
+    /* legacy prototype compatible commands */
+    {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
+    {"p", do_cmd_play, "<note>", "play the note, eg.'#2.' means high re sharp"},
 };
+
+static int do_cmd_help(char *data)
+{
+    printf("Usage: cmd [param]...\n");
+    printf("List of cmd:\n");
+    for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
+        printf("%s %s, %s\n", g_cmd_table[i].cmd, g_cmd_table[i].param_info, g_cmd_table[i].help_info);
+    }
+    return ESP_OK;
+}
 
 
 static int do_cmd_set(char *data)
@@ -170,7 +184,7 @@ static int do_cmd_set_midi_chan(char *data)
         ESP_LOGE(TAG, "Invalid set channel command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
-    set_midi_channel(ch);
+    set_input_midi_channel(ch);
     return ESP_OK;
 }
 
@@ -211,10 +225,10 @@ static int do_cmd_testmagnet2(char *data)
 /**
  * @brief
  *
- * @param cmd
+ * @param command
  * @return int
  */
-int dispatch_uart_cmd(char *cmd)
+static int dispatch_uart_cmd(char *command)
 {
     int rc = ESP_OK;
 
@@ -222,18 +236,24 @@ int dispatch_uart_cmd(char *cmd)
     int status = 0; // TODO: replace with actual MIDI status check
     if (status) {
         // midi is playing, ignore the command
-        ESP_LOGW(TAG, "MIDI is playing, command ignored: %s", cmd);
+        ESP_LOGW(TAG, "MIDI is playing, command ignored: %s", command);
         return ESP_OK;
     }
 
+    char cmdbuff[CMD_MAX_LEN];
+    rc = sscanf(command, "%s", cmdbuff);
+    if (rc != 1) {
+        goto err;
+    }
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
-        if (strncmp(cmd, g_cmd_table[i].cmd, strlen(g_cmd_table[i].cmd)) == 0) {
-            rc = g_cmd_table[i].func(cmd + strlen(g_cmd_table[i].cmd));
+        if (strncmp(cmdbuff, g_cmd_table[i].cmd, strlen(g_cmd_table[i].cmd)) == 0) {
+            rc = g_cmd_table[i].func(command + strlen(g_cmd_table[i].cmd));
             return rc;
         }
     }
 
-    ESP_LOGW(TAG, "Invalid command: %s", cmd);
+err:
+    ESP_LOGW(TAG, "Invalid command: %s", command);
 
     return ESP_OK;
 }

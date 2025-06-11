@@ -74,21 +74,25 @@ static const uint8_t s_midi_hs_cfg_desc[] = {
 };
 #endif // TUD_OPT_HIGH_SPEED
 
-uint8_t g_midi_channel = 0;
+uint8_t g_input_channel = 0xff; // 0xff means all channels are active, 0~15 means channel 1~16
 
 /**
- * @brief Set the midi channel
+ * @brief Set the input active midi channel
  *
- * @param ch_index 1~16
+ * @param ch_index 0,1~16 (0 means all channels are active)
  */
-void set_midi_channel(uint8_t ch_index)
+void set_input_midi_channel(uint8_t ch_index)
 {
-    if (ch_index < 1 || ch_index > 16) {
+    if (ch_index > 16) {
         ESP_LOGE(TAG, "midi channel %d is invalid", ch_index);
         return;
     }
-    g_midi_channel = ch_index - 1;
-    ESP_LOGI(TAG, "set actived midi channel to %d", ch_index);
+    g_input_channel = ch_index - 1;
+    if (ch_index == 0x0) {
+        ESP_LOGI(TAG, "set all midi channels active");
+    } else {
+        ESP_LOGI(TAG, "set midi channel %d active", ch_index);
+    }
 }
 
 
@@ -118,7 +122,7 @@ static void midi_task_read_example(void *arg)
                 // only deal whith Note On/Off
                 if (code_index == 0x9 && data2 != 0) {
                     ESP_LOGI(TAG, "Note On: channel=%d note=%d velocity=%d", channel + 1, data1, data2);
-                    if (channel == g_midi_channel) {
+                    if (g_input_channel == 0xff || channel == g_input_channel) {
                         if (data2 > 0) {
                             rc = play_sigle_note_by_midi(data1);
                             if (rc != ESP_OK) {

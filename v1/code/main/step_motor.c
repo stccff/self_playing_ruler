@@ -60,7 +60,7 @@
 #define SPEED_HZ (1200 * (1 << MODE))
 
 #define LEN_PER_FULL_STEP 0.15 // mm
-#define MAX_FULL_STEP 300 // TODO: test
+#define MAX_FULL_STEP 320
 #define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
 #define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
 #define SCREW_BACKLASH (2 * (1 << MODE)) // step

@@ -90,7 +90,7 @@ static int do_cmd_help(char *data)
     printf("Usage: cmd [param]...\n");
     printf("List of cmd:\n");
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
-        printf("%s %s, %s\n", g_cmd_table[i].cmd, g_cmd_table[i].param_info, g_cmd_table[i].help_info);
+        printf("%s %s: %s\n", g_cmd_table[i].cmd, g_cmd_table[i].param_info, g_cmd_table[i].help_info);
     }
     return ESP_OK;
 }

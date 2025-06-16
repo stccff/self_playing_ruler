@@ -11,11 +11,11 @@
 #define I2S_WS_IO       (GPIO_NUM_16)
 #define I2S_DI_IO       (GPIO_NUM_17)
 
-/* electromagnet GPIOs */
-#define MAGNET_TOP_A_GPIO 10
-#define MAGNET_TOP_B_GPIO 11
-#define MAGNET_BOTTOM_A_GPIO 12
-#define MAGNET_BOTTOM_B_GPIO 13
+/* H bridge GPIOs */
+#define MOTOR_A_1_IO 10
+#define MOTOR_A_2_IO 11
+#define MOTOR_B_1_IO 12
+#define MOTOR_B_2_IO 13
 
 /* servo motor GPIOs */
 #define SERVO_STRUM_GPIO 47 // GPIO number for strum servo

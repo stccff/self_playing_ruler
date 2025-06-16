@@ -17,13 +17,13 @@
 #include "play.h"
 #include "digital_mic.h"
 #include "gpio_pin_config.h"
-#include "electromagnet.h"
+#include "h_bridge.h"
 
 /* ***************************************************************************************************************** */
 /*                                                 macro define                                                            */
 /* ***************************************************************************************************************** */
 
-// hardware v1.0
+// hardware A v1.0
 #ifdef CONFIG_HW_A_VER_1_0
 
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
@@ -48,7 +48,7 @@
 #define RULER_LEN_MUSIC_MAX 65.0 // mm
 #endif
 
-// hardware v1.1
+// hardware A v1.1
 #ifdef CONFIG_HW_A_VER_1_1
 
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
@@ -72,6 +72,33 @@
 #define RULER_LEN_MUSIC_MIN 22.0 // mm
 #define RULER_LEN_MUSIC_MAX 64.5 // mm
 #endif
+
+
+// hardware B v1.0
+#ifdef CONFIG_HW_B_VER_1_0
+
+#define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
+
+#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+
+#define SAMPLE_POINTS (20 * (1 << MODE))
+#define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
+#define SPEED_HZ (1200 * (1 << MODE))
+
+#define LEN_PER_FULL_STEP 0.15 // mm
+#define MAX_FULL_STEP 326 // (55mm - 6mm(crew connector)) / 0.15mm
+#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
+#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
+#define SCREW_BACKLASH (2 * (1 << MODE)) // step
+
+// ruler features
+#define RULER_LEN_MIN 15.05   // mm
+#define RULER_LEN_MAX 64.05  // mm
+
+#define RULER_LEN_MUSIC_MIN 24.0 // mm
+#define RULER_LEN_MUSIC_MAX 64 // mm
+#endif
+
 
 #define RULLER_FREQ_SAMPLE_NUM 60
 #define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
@@ -379,21 +406,21 @@ static void action_init(void)
     /* Screw stepper motor init */
     ESP_LOGI(TAG, "Move to central position");
 
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
     g_tx_config.loop_count = MAX_STEP + 10 * (1 << MODE);
     uint32_t speed = SPEED_LOW_HZ;
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
     g_tx_config.loop_count = MAX_STEP + 10 * (1 << MODE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
     g_tx_config.loop_count = MAX_STEP / 2;
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -402,7 +429,7 @@ static void action_init(void)
 
     // init current position
     g_curr_pos = MAX_STEP / 2;
-    g_last_dir = STEP_MOTOR_SPIN_DIR_CLOCKWISE;
+    g_last_dir = STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
 }
 
 void init_nvs_for_freq_table(void)
@@ -468,10 +495,7 @@ static int create_freq_table(void)
     }
 
     // remove backlash error
-    electromagnet_set(0, 0);
-    electromagnet_set(0, 0);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    rc = stepper_motor_action_by_pos(true, 0);
+    rc = play_sigle_note_by_pos(0);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "remove backlash, set pos error");
         return rc;

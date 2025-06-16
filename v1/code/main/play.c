@@ -4,7 +4,7 @@
 #include "play.h"
 #include "servo_motor.h"
 #include "step_motor.h"
-#include "electromagnet.h"
+#include "h_bridge.h"
 #include "note_decode.h"
 #include "driver/gptimer.h"
 
@@ -87,11 +87,15 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
 {
     int rc = ESP_OK;
     /* release the ruler */
-    // electromagnet_set(0, POLARITY_NEGATIVE);
-    // vTaskDelay(10 / portTICK_PERIOD_MS);
-    electromagnet_set(0, 0);
-    electromagnet_set(1, 0);
-    vTaskDelay(30 / portTICK_PERIOD_MS);
+#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
+    h_bridge_set(0, 0);
+    h_bridge_set(1, 0);
+    vTaskDelay(pdMS_TO_TICKS(30));
+#elif defined(CONFIG_HW_B_VER_1_0)
+    h_bridge_set(1, 1); // release
+    vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
+    h_bridge_set(1, 0); // off
+#endif
 
     /* get pos from other type */
     int pos = 0;
@@ -114,14 +118,19 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
     }
 
     /* move stepper motor and strum */
-    int stepper_motor_estimated_time = calc_stepper_motor_time_by_pos(pos);
-    if (stepper_motor_estimated_time < 0) {
-        return stepper_motor_estimated_time;
+    int ruler_estimated_time = calc_stepper_motor_time_by_pos(pos);
+    if (ruler_estimated_time < 0) {
+        return ruler_estimated_time;
     }
 #ifdef CONFIG_DEBUG_PRINT
-    ESP_LOGI(TAG, "stepper motor action estimated time: %d ms", stepper_motor_estimated_time);
+    ESP_LOGI(TAG, "stepper motor action estimated time: %d ms", ruler_estimated_time);
 #endif
-    if (stepper_motor_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
+
+#ifdef CONFIG_HW_B_VER_1_0
+    ruler_estimated_time += BDC_PRESS_DELAY;
+#endif
+
+    if (ruler_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
 
         servo_motor_action(3); // strum start
 
@@ -132,22 +141,28 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         }
 
         // after ruler move, press the ruler
-        electromagnet_set(0, POLARITY_POSITIVE);
-        electromagnet_set(1, POLARITY_NEGATIVE);
+#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
+        h_bridge_set(0, POLARITY_POSITIVE);
+        h_bridge_set(1, POLARITY_NEGATIVE);
+#elif defined(CONFIG_HW_B_VER_1_0)
+        h_bridge_set(1, -1); // press
+        vTaskDelay(pdMS_TO_TICKS(BDC_PRESS_DELAY));
+        h_bridge_set(1, 0); // off
+#endif
 
-        // strum: now touch the ruler)
+        // strum: now touch the ruler
 
-        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - stepper_motor_estimated_time));
+        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - ruler_estimated_time + 10));
         // strum end
     } else {
-        // start timer (time alart time: stepper_motor_estimated_time - SERVO_STRUM_PREPARE_TIME)
+        // start timer (time alart time: ruler_estimated_time - SERVO_STRUM_PREPARE_TIME)
 #ifdef CONFIG_DEBUG_PRINT
         int64_t start_time = esp_timer_get_time();
-        ESP_LOGI(TAG, "timer start time in: %llu ms, set timer: %d ms", start_time / 1000, stepper_motor_estimated_time - SERVO_STRUM_PREPARE_TIME);
+        ESP_LOGI(TAG, "timer start time in: %llu ms, set timer: %d ms", start_time / 1000, ruler_estimated_time - SERVO_STRUM_PREPARE_TIME);
 #endif
         ESP_ERROR_CHECK(gptimer_set_raw_count(g_gptimer, 0)); // reset counter
         gptimer_alarm_config_t alarm_config = {
-            .alarm_count = (stepper_motor_estimated_time - SERVO_STRUM_PREPARE_TIME) * 1000,
+            .alarm_count = (ruler_estimated_time - SERVO_STRUM_PREPARE_TIME) * 1000,
         };
         ESP_ERROR_CHECK(gptimer_set_alarm_action(g_gptimer, &alarm_config));
         ESP_ERROR_CHECK(gptimer_start(g_gptimer)); // strum in timer callback
@@ -159,8 +174,14 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         }
 
         // after ruler move, press the ruler
-        electromagnet_set(0, POLARITY_POSITIVE);
-        electromagnet_set(1, POLARITY_NEGATIVE);
+#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
+        h_bridge_set(0, POLARITY_POSITIVE);
+        h_bridge_set(1, POLARITY_NEGATIVE);
+#elif defined(CONFIG_HW_B_VER_1_0)
+        h_bridge_set(1, -1); // press
+        vTaskDelay(pdMS_TO_TICKS(BDC_PRESS_DELAY));
+        h_bridge_set(1, 0); // off
+#endif
 
         vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - SERVO_STRUM_PREPARE_TIME));
 #ifdef CONFIG_DEBUG_PRINT
@@ -175,8 +196,8 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
     // }
 
     // // press
-    // electromagnet_set(0, POLARITY_POSITIVE);
-    // electromagnet_set(1, POLARITY_NEGATIVE);
+    // h_bridge_set(0, POLARITY_POSITIVE);
+    // h_bridge_set(1, POLARITY_NEGATIVE);
 
     // // strum
     // servo_motor_action(3);

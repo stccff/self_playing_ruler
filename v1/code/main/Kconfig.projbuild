@@ -9,12 +9,15 @@ menu "Ruler Instrument Configuration"
         prompt "Hardware version"
         help
             To adapte different hw version
-        default HW_A_VER_1_1
+        default HW_B_VER_1_0
 
         config HW_A_VER_1_0
             bool "A_V1.0"
 
         config HW_A_VER_1_1
             bool "A_V1.1"
+
+        config HW_B_VER_1_0
+            bool "B_V1.0"
     endchoice
 endmenu

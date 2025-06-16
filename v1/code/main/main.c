@@ -10,7 +10,7 @@
 #include "step_motor.h"
 #include "uart_ctrl.h"
 #include "digital_mic.h"
-#include "electromagnet.h"
+#include "h_bridge.h"
 #include "tusb_midi.h"
 #include "play.h"
 
@@ -40,7 +40,7 @@ void print_task_info(char *buff)
 void app_main(void)
 {
     i2s_driver_init();
-    electromagnet_init();
+    h_bridge_init();
     servo_motor_init();
     init_nvs_for_freq_table();
     stepper_motor_init();

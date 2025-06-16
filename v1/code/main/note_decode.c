@@ -59,7 +59,7 @@ static int g_scale = 0; // Major
 /**
  * @brief Parsing simple notation to midi number
  *
- * @param note  simple notation like "1", "2.", ".2", "#1", "b2", "1#", "1.b", "1.."
+ * @param note  simple notation like "1", "2.", ".2", "#1", "b2", "1#", "1b.", "1.."
  * @return int  midi number
  */
 int parse_simple_note_to_midi(const char *note)
@@ -69,7 +69,7 @@ int parse_simple_note_to_midi(const char *note)
     int note_num = 0;
     int accidentals = 0;  // 升降号计数器
 
-    const char* p = note;
+    const char* p = note + 1; // 跳过空格
 
     // 解析下方点
     while (*p == '.') {

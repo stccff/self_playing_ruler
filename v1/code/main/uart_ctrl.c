@@ -13,7 +13,7 @@
 #include "string.h"
 #include "stdlib.h"
 #include "esp_timer.h"
-#include "electromagnet.h"
+#include "h_bridge.h"
 #include "play.h"
 #include "tusb_midi.h"
 
@@ -55,6 +55,7 @@ typedef struct {
 /* ***************************************************************************************************************** */
 /*                                             function prototype                                                    */
 /* ***************************************************************************************************************** */
+static int do_cmd_help(char *data);
 static int do_cmd_init_freq_table(char *data);
 static int do_cmd_clear_freq_table(char *data);
 static int do_cmd_freq_table_show(char *data);
@@ -65,7 +66,7 @@ static int do_cmd_testlen(char *data);
 static int do_cmd_testpos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
-static int do_cmd_help(char *data);
+static int do_cmd_testbdc(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
@@ -80,6 +81,8 @@ cmd_table_t g_cmd_table[] = {
     {"testpos", do_cmd_testpos, "<pos>", "ruler play by stepper motor absolute position"},
     {"testmagnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
     {"testmagnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
+    {"testbdc", do_cmd_testbdc, "<polary> <delay_ms>", "run brushed DC motor"},
+
     /* legacy prototype compatible commands */
     {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
     {"p", do_cmd_play, "<note>", "play the note, eg.'#2.' means high re sharp"},
@@ -198,7 +201,7 @@ static int do_cmd_testmagnet(char *data)
         return ESP_ERR_INVALID_ARG;
     }
 
-    electromagnet_set(index, polary);
+    h_bridge_set(index, polary);
 
     return ESP_OK;
 }
@@ -215,8 +218,25 @@ static int do_cmd_testmagnet2(char *data)
         return ESP_ERR_INVALID_ARG;
     }
 
-    electromagnet_set(index, polary);
-    electromagnet_set(index2, polary2);
+    h_bridge_set(index, polary);
+    h_bridge_set(index2, polary2);
+
+    return ESP_OK;
+}
+
+static int do_cmd_testbdc(char *data)
+{
+    int polary = 0;
+    int delay = 0;
+    int rc = sscanf(data, "%d %d\n", &polary, &delay);
+    if (rc != 2) {
+        ESP_LOGE(TAG, "Invalid test bdc command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    h_bridge_set(1, polary);
+    vTaskDelay(pdMS_TO_TICKS(delay));
+    h_bridge_set(1, 0);
 
     return ESP_OK;
 }
@@ -246,8 +266,8 @@ static int dispatch_uart_cmd(char *command)
         goto err;
     }
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
-        if (strncmp(cmdbuff, g_cmd_table[i].cmd, strlen(g_cmd_table[i].cmd)) == 0) {
-            rc = g_cmd_table[i].func(command + strlen(g_cmd_table[i].cmd));
+        if (strcmp(cmdbuff, g_cmd_table[i].cmd) == 0) {
+            rc = g_cmd_table[i].func(command + strlen(cmdbuff));
             return rc;
         }
     }

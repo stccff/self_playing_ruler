@@ -83,16 +83,6 @@ void play_timer_init(void)
 static int play_single_note(stepper_motor_act_t act_type, void *param)
 {
     int rc = ESP_OK;
-    /* release the ruler */
-#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
-    h_bridge_set(0, 0);
-    h_bridge_set(1, 0);
-    vTaskDelay(pdMS_TO_TICKS(30));
-#elif defined(CONFIG_HW_B_VER_1_0)
-    h_bridge_set(1, 1); // release
-    vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
-    h_bridge_set(1, 0); // off
-#endif
 
     /* get pos from other type */
     int pos = 0;
@@ -114,7 +104,7 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         return ESP_ERR_INVALID_ARG;
     }
 
-    /* move stepper motor and strum */
+    // estimate stepper motor action time
     int ruler_estimated_time = calc_stepper_motor_time_by_pos(pos);
     if (ruler_estimated_time < 0) {
         return ruler_estimated_time;
@@ -124,8 +114,25 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
     ruler_estimated_time += BDC_PRESS_DELAY;
 #endif
 
-    if (ruler_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
+    /* release the ruler */
+#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
+    if (ruler_estimated_time != 0) { // if zero, no need to release
+        h_bridge_set(0, 0);
+        h_bridge_set(1, 0);
+    }
+    vTaskDelay(pdMS_TO_TICKS(20)); // TODO: 20 is ok? or 30?
+#elif defined(CONFIG_HW_B_VER_1_0)
+    if (ruler_estimated_time != 0) {
+        h_bridge_set(1, 1); // release
+        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
+        h_bridge_set(1, 0); // off
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
+    }
+#endif
 
+    /* move stepper motor and strum */
+    if (ruler_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
         servo_motor_action(3); // strum start
 
         rc = stepper_motor_action_by_pos(true, pos);

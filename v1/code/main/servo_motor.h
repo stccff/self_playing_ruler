@@ -10,6 +10,7 @@
 #define SERVO_STRUM_FULL_TIME 156
 
 extern void servo_motor_init(void);
-extern void servo_motor_action(int index);
+extern void servo_motor_action(int act_idx);
+extern int set_servo_angle(int servo_idx, int angle);
 
 #endif // __SERVO_MOTOR_H

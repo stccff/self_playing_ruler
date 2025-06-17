@@ -18,8 +18,8 @@
 #define SERVO_TIMEBASE_RESOLUTION_HZ 1000000 // 1MHz, 1us per tick
 #define SERVO_TIMEBASE_PERIOD 20000          // 20000 ticks, 20ms
 
-#define SERVO_STRUM_UP_ANGLE 20
-#define SERVO_STRUM_DOWN_ANGLE -35
+#define SERVO_STRUM_UP_ANGLE 25
+#define SERVO_STRUM_DOWN_ANGLE -30
 
 #ifdef CONFIG_SERVO_FRET
 #define SERVO_FRET_UP_ANGLE 70
@@ -36,8 +36,7 @@
 /* ***************************************************************************************************************** */
 static const char *TAG = "servo_motor";
 TaskHandle_t g_servo_task_handle = NULL;
-mcpwm_cmpr_handle_t g_strum_pwm_cmp = NULL;
-mcpwm_cmpr_handle_t g_fret_pwm_cmp = NULL;
+mcpwm_cmpr_handle_t g_servo_handle[2] = {NULL};
 int g_strum_angle = SERVO_STRUM_UP_ANGLE;
 
 
@@ -99,43 +98,58 @@ mcpwm_cmpr_handle_t pwm_create(int output_gpio)
     return comparator;
 }
 
-void servo_motor_action(int index)
+void servo_motor_action(int act_idx)
 {
-    switch (index) {
+    switch (act_idx) {
 #ifdef CONFIG_SERVO_FRET
     case 1 :
         /* Release */
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE)));
         break;
     case 2 :
         /* Fret */
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE -30)));
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_DOWN_ANGLE)));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_DOWN_ANGLE -30)));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_DOWN_ANGLE)));
         break;
 #endif
     case 3 :
         /* Strum */
         g_strum_angle = (g_strum_angle == SERVO_STRUM_UP_ANGLE) ? SERVO_STRUM_DOWN_ANGLE : SERVO_STRUM_UP_ANGLE;
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(g_strum_angle)));
+        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[0], angle_to_compare(g_strum_angle)));
         break;
     default:
-        ESP_LOGE(TAG, "Invalid index: %d", index);
+        ESP_LOGE(TAG, "Invalid action index: %d", act_idx);
         break;
     }
 
     return;
 }
 
+int set_servo_angle(int servo_idx, int angle)
+{
+    if (servo_idx < 0 || servo_idx >= sizeof(g_servo_handle) / sizeof(g_servo_handle[0])) {
+        ESP_LOGE(TAG, "Invalid servo index: %d", servo_idx);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (angle < SERVO_MIN_DEGREE || angle > SERVO_MAX_DEGREE) {
+        ESP_LOGE(TAG, "Invalid servo angle: %d", angle);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[servo_idx], angle_to_compare(angle)));
+
+    return ESP_OK;
+}
+
 void servo_motor_init(void)
 {
-    g_strum_pwm_cmp = pwm_create(SERVO_STRUM_GPIO);
+    g_servo_handle[0] = pwm_create(SERVO_STRUM_GPIO);
     g_strum_angle = SERVO_STRUM_UP_ANGLE;
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_strum_pwm_cmp, angle_to_compare(SERVO_STRUM_UP_ANGLE)));
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[0], angle_to_compare(SERVO_STRUM_UP_ANGLE)));
 
 #ifdef CONFIG_SERVO_FRET
-    g_fret_pwm_cmp = pwm_create(SERVO_FRET_GPIO);
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_fret_pwm_cmp, angle_to_compare(SERVO_FRET_UP_ANGLE)));
+    g_servo_handle[1] = pwm_create(SERVO_FRET_GPIO);
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE)));
 #endif // CONFIG_SERVO_FRET
 
 

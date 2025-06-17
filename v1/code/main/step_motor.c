@@ -57,7 +57,7 @@
 
 #define SAMPLE_POINTS (20 * (1 << MODE))
 #define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
-#define SPEED_HZ (1200 * (1 << MODE))
+#define SPEED_HZ (2000 * (1 << MODE))
 
 #define LEN_PER_FULL_STEP 0.15 // mm
 #define MAX_FULL_STEP 320
@@ -100,7 +100,7 @@
 #endif
 
 
-#define RULLER_FREQ_SAMPLE_NUM 60
+#define RULLER_FREQ_SAMPLE_NUM 50
 #define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
 
 #define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
@@ -534,7 +534,7 @@ static int create_freq_table(void)
     return ESP_OK;
 }
 
-int freq_table_init(bool force_init) // TODO: need check stepper motor controler's mode, before use nvs F-P table
+int freq_table_init(bool force_init) // TODO: need check stepper motor controler's mode, ruler len, before use nvs F-P table
 {
     int rc = ESP_OK;
 

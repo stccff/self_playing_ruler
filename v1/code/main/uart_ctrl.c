@@ -67,6 +67,7 @@ static int do_cmd_testpos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
 static int do_cmd_testbdc(char *data);
+static int do_cmd_servo(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
@@ -82,6 +83,7 @@ cmd_table_t g_cmd_table[] = {
     {"testmagnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
     {"testmagnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
     {"testbdc", do_cmd_testbdc, "<polary> <delay_ms>", "run brushed DC motor"},
+    {"testservo", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
 
     /* legacy prototype compatible commands */
     {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
@@ -239,6 +241,18 @@ static int do_cmd_testbdc(char *data)
     h_bridge_set(1, 0);
 
     return ESP_OK;
+}
+
+static int do_cmd_servo(char *data)
+{
+    int index = 0;
+    int angle = 0;
+    int rc = sscanf(data, "%d %d\n", &index, &angle);
+    if (rc != 2) {
+        ESP_LOGE(TAG, "Invalid test servo command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+    return set_servo_angle(index, angle);
 }
 
 

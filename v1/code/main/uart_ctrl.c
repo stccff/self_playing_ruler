@@ -267,7 +267,7 @@ static int dispatch_uart_cmd(char *command)
     }
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
         if (strcmp(cmdbuff, g_cmd_table[i].cmd) == 0) {
-            rc = g_cmd_table[i].func(command + strlen(cmdbuff));
+            rc = g_cmd_table[i].func(command + strlen(cmdbuff) + 1); // +1 for space after command
             return rc;
         }
     }

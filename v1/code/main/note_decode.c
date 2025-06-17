@@ -69,7 +69,7 @@ int parse_simple_note_to_midi(const char *note)
     int note_num = 0;
     int accidentals = 0;  // 升降号计数器
 
-    const char* p = note + 1; // 跳过空格
+    const char* p = note;
 
     // 解析下方点
     while (*p == '.') {

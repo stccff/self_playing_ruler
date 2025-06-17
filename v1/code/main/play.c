@@ -31,9 +31,8 @@ typedef enum {
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
 gptimer_handle_t g_gptimer = NULL;
-#ifdef CONFIG_DEBUG_PRINT
-int64_t alarm_time = 0;
-#endif
+
+int64_t alarm_time = 0; // for debug
 /* ***************************************************************************************************************** */
 /*                                              function prototype                                                   */
 /* ***************************************************************************************************************** */
@@ -43,9 +42,7 @@ static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_al
 
     // stop timer immediately
     gptimer_stop(timer);
-#ifdef CONFIG_DEBUG_PRINT
     alarm_time = esp_timer_get_time();
-#endif
     // strum
     servo_motor_action(3);
 
@@ -122,10 +119,7 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
     if (ruler_estimated_time < 0) {
         return ruler_estimated_time;
     }
-#ifdef CONFIG_DEBUG_PRINT
-    ESP_LOGI(TAG, "stepper motor action estimated time: %d ms", ruler_estimated_time);
-#endif
-
+    ESP_LOGD(TAG, "stepper motor action estimated time: %d ms", ruler_estimated_time);
 #ifdef CONFIG_HW_B_VER_1_0
     ruler_estimated_time += BDC_PRESS_DELAY;
 #endif
@@ -150,16 +144,15 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         h_bridge_set(1, 0); // off
 #endif
 
-        // strum: now touch the ruler
+        // strum: now touch the ruler(triggered by action(3))
 
-        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - ruler_estimated_time + 10));
+        vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - ruler_estimated_time));
         // strum end
     } else {
         // start timer (time alart time: ruler_estimated_time - SERVO_STRUM_PREPARE_TIME)
-#ifdef CONFIG_DEBUG_PRINT
         int64_t start_time = esp_timer_get_time();
-        ESP_LOGI(TAG, "timer start time in: %llu ms, set timer: %d ms", start_time / 1000, ruler_estimated_time - SERVO_STRUM_PREPARE_TIME);
-#endif
+        ESP_LOGD(TAG, "timer start time in: %llu ms, set timer: %d ms", start_time / 1000, ruler_estimated_time - SERVO_STRUM_PREPARE_TIME);
+
         ESP_ERROR_CHECK(gptimer_set_raw_count(g_gptimer, 0)); // reset counter
         gptimer_alarm_config_t alarm_config = {
             .alarm_count = (ruler_estimated_time - SERVO_STRUM_PREPARE_TIME) * 1000,
@@ -184,9 +177,8 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
 #endif
 
         vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - SERVO_STRUM_PREPARE_TIME));
-#ifdef CONFIG_DEBUG_PRINT
-        ESP_LOGI(TAG, "timer alarm time in: %llu ms, timer cost: %llu ms", alarm_time / 1000, (alarm_time - start_time) / 1000);
-#endif
+
+        ESP_LOGD(TAG, "timer alarm time in: %llu ms, timer cost: %llu ms", alarm_time / 1000, (alarm_time - start_time) / 1000);
     }
 
     // rc = stepper_motor_action_by_pos(true, pos);

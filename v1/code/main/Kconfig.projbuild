@@ -1,15 +1,15 @@
 menu "Ruler Instrument Configuration"
-    config DEBUG_PRINT
-        bool "Enable debug log print"
-        default n
-        help
-            Enable or disable printing of debug information.
+    # config DEBUG_PRINT
+    #     bool "Enable debug log print"
+    #     default n
+    #     help
+    #         Enable or disable printing of debug information.
 
     choice RULER_INSTRUMENT_HARDWARE_VERSION
         prompt "Hardware version"
         help
             To adapte different hw version
-        default HW_B_VER_1_0
+        default HW_A_VER_1_1
 
         config HW_A_VER_1_0
             bool "A_V1.0"

@@ -42,12 +42,11 @@ void h_bridge_init(void)
     };
     ESP_ERROR_CHECK(gpio_config(&magnet_io_cfg));
 
-    h_bridge_set(0, 0);
-    h_bridge_set(1, 0); // off
+    for (int i = 0; i < sizeof(g_hbridge_io_cfg) / sizeof(g_hbridge_io_cfg[0]); i++) {
+        h_bridge_set(i, 0); // turn off all h-bridges
+    }
 
-#ifdef CONFIG_HW_B_VER_1_0
-
-#endif // CONFIG_HW_B_VER_1_0
+#ifdef CONFIG_HW_B_VER_1_0 // TODO: abstract this to bdc.c
     h_bridge_set(1, -1); // press
     vTaskDelay(pdMS_TO_TICKS(100));
     h_bridge_set(1, 0); // off
@@ -69,9 +68,9 @@ void h_bridge_init(void)
         vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
         h_bridge_set(1, 0); // off
     }
+#endif // CONFIG_HW_B_VER_1_0
 
     ESP_LOGI(TAG, "H-bridge GPIO initialized");
-
 }
 
 void h_bridge_set(int index, int polarity)

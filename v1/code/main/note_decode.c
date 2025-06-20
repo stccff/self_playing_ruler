@@ -67,44 +67,44 @@ int parse_simple_note_to_midi(const char *note)
     int dots_below = 0;
     int dots_above = 0;
     int note_num = 0;
-    int accidentals = 0;  // 升降号计数器
+    int accidentals = 0;
 
     const char* p = note;
 
-    // 解析下方点
+    // parse dote below
     while (*p == '.') {
         dots_below++;
         p++;
     }
 
-    // 解析数字前升降号
+    // parse flat or sharp before number
     while (*p == '#' || *p == 'b') {
         accidentals += (*p == '#') ? 1 : -1;
         p++;
     }
 
-    // 解析音符数字
+    // parse number
     note_num = *p - '0';
+    if (note_num < 1 || note_num > 7) {
+        return -1;
+    }
     p++;
 
-    // 解析数字后升降号
+    // parse flat or sharp after number
     while (*p == '#' || *p == 'b') {
         accidentals += (*p == '#') ? 1 : -1;
         p++;
     }
 
-    // 解析上方点
+    // parse dote above
     while (*p == '.') {
         dots_above++;
         p++;
     }
 
-    // 计算MIDI编号
+    // count midi number
     int octave_shift = dots_above - dots_below;
-    int midi = g_base + g_scale_offset[g_scale][note_num - 1] + octave_shift * 12 + accidentals;;
-
-    // 计算时值（示例：假设4分音符为480 ticks）
-    // int duration = 480; // 默认四分音符
+    int midi = g_base + g_scale_offset[g_scale][note_num - 1] + octave_shift * 12 + accidentals;
 
     return midi;
 }
@@ -117,6 +117,9 @@ int parse_simple_note_to_midi(const char *note)
  */
 float convert_midi_to_freq(int midi)
 {
+    if (midi < 0 || midi > 127) {
+        return -1;
+    }
     return g_midi_freq[midi];
 }
 

@@ -28,17 +28,9 @@
 
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 0
 
-#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
-
 #define SAMPLE_POINTS (20 * (1 << MODE))
 #define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
 #define SPEED_HZ (1200 * (1 << MODE))
-
-#define LEN_PER_FULL_STEP 0.15 // mm
-#define MAX_FULL_STEP 300 // TODO: test
-#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
-#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
-#define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 // ruler features
 #define RULER_LEN_MIN 16.52   // mm
@@ -53,17 +45,9 @@
 
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
 
-#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
-
 #define SAMPLE_POINTS (20 * (1 << MODE))
 #define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
 #define SPEED_HZ (2000 * (1 << MODE))
-
-#define LEN_PER_FULL_STEP 0.15 // mm
-#define MAX_FULL_STEP 320
-#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
-#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
-#define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 // ruler features
 #define RULER_LEN_MIN 14.52   // mm
@@ -79,17 +63,9 @@
 
 #define STEP_MOTOR_SPIN_DIR_CLOCKWISE 1
 
-#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
-
 #define SAMPLE_POINTS (20 * (1 << MODE))
 #define SPEED_LOW_HZ (500 * (1 << MODE)) // < SPEED_HZ
 #define SPEED_HZ (1200 * (1 << MODE))
-
-#define LEN_PER_FULL_STEP 0.15 // mm
-#define MAX_FULL_STEP 326 // (55mm - 6mm(crew connector)) / 0.15mm
-#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
-#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
-#define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 // ruler features
 #define RULER_LEN_MIN 15.05   // mm
@@ -99,6 +75,13 @@
 #define RULER_LEN_MUSIC_MAX 64 // mm
 #endif
 
+#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+
+#define LEN_PER_FULL_STEP 0.15 // mm
+#define MAX_FULL_STEP 320
+#define LEN_PER_STEP (LEN_PER_FULL_STEP / (1 << MODE))
+#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
+#define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 #define RULLER_FREQ_SAMPLE_NUM 50
 #define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
@@ -107,7 +90,7 @@
 #define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
 #define STEP_MOTOR_RESOLUTION_HZ 1000000 // 1MHz resolution
 
-
+// ruler features
 /* formula f=k/(L^2)+b, L=(k/(f-b))^(1/2) */
 #define SLOPE_K 172767.3698
 #define INTERCEPT_B 20.1147953
@@ -165,11 +148,11 @@ int convert_freq_to_pos(double target_freq)
 
     // the boundary check
     if (target_freq > g_pf_table[0].freq) {
-        ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
+        ESP_LOGE(TAG, "freq:%lf is outof table", target_freq);
         return -1;
     }
     if (target_freq < g_pf_table[table_num-1].freq) {
-        ESP_LOGE(TAG, "freq:%lf in outof table", target_freq);
+        ESP_LOGE(TAG, "freq:%lf is outof table", target_freq);
         return -1;
     }
 
@@ -184,8 +167,8 @@ int convert_freq_to_pos(double target_freq)
 
             // do linear interpolation
             float t = (target_freq - f1) / (f2 - f1);
-            float interpolated_len = p1 + t * (p2 - p1);
-            return round(interpolated_len);
+            float interpolated_pos = p1 + t * (p2 - p1);
+            return round(interpolated_pos);
         }
     }
 
@@ -449,7 +432,7 @@ static int measure_frequency(float len, float *freq)
 {
     int rc = ESP_OK;
 
-    rc = play_sigle_note_by_len(len);
+    rc = play_single_note_by_len(len);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "measure play len:%f fail", len);
         return rc;
@@ -495,7 +478,7 @@ static int create_freq_table(void)
     }
 
     // remove backlash error
-    rc = play_sigle_note_by_pos(0);
+    rc = play_single_note_by_pos(0);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "remove backlash, set pos error");
         return rc;
@@ -654,7 +637,7 @@ int freq_table_show(void)
         ESP_LOGW(TAG, "frequency table is NULL");
     } else {
         ESP_LOGI(TAG, "frequency table:");
-        printf("len\tpos\tfreq\n");
+        printf("Estimated_length\tPosition\tFrequency\n");
         for (size_t i = 0; i < g_pf_table_num; i++) {
             printf("%f\t%d\t%f\n", convert_pos_to_len(g_pf_table[i].pos), g_pf_table[i].pos, g_pf_table[i].freq);
         }

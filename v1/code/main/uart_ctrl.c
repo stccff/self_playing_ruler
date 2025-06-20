@@ -121,7 +121,7 @@ static int do_cmd_play(char *data)
     float freq = convert_midi_to_freq(midi);
     // ESP_LOGI(TAG, "midi = %d, freq = %f", midi, freq);
 
-    return play_sigle_note_by_freq(freq);
+    return play_single_note_by_freq(freq);
 }
 
 static int do_cmd_testlen(char *data)
@@ -133,7 +133,7 @@ static int do_cmd_testlen(char *data)
         return ESP_ERR_INVALID_ARG;
     }
 
-    return play_sigle_note_by_len(len);
+    return play_single_note_by_len(len);
 }
 
 static int do_cmd_testpos(char *data)
@@ -145,7 +145,7 @@ static int do_cmd_testpos(char *data)
         return ESP_ERR_INVALID_ARG;
     }
 
-    return play_sigle_note_by_pos(pos);
+    return play_single_note_by_pos(pos);
 }
 
 static int do_cmd_init_freq_table(char *data)
@@ -281,7 +281,8 @@ static int dispatch_uart_cmd(char *command)
     }
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
         if (strcmp(cmdbuff, g_cmd_table[i].cmd) == 0) {
-            rc = g_cmd_table[i].func(command + strlen(cmdbuff) + 1); // +1 for space after command
+            char *data = strstr(command, cmdbuff) + strlen(cmdbuff) + 1; // remove all space before 'data'
+            rc = g_cmd_table[i].func(data);
             return rc;
         }
     }

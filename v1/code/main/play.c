@@ -15,6 +15,8 @@
 
 #define POLARITY_POSITIVE 1
 #define POLARITY_NEGATIVE -1
+
+#define E_MAGNET_FINAL_RELEASE_DELAY 10*1000 // ms
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
 /* ***************************************************************************************************************** */
@@ -30,13 +32,14 @@ typedef enum {
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
-gptimer_handle_t g_gptimer = NULL;
-
+gptimer_handle_t g_strum_timer = NULL;
+gptimer_handle_t g_emagnet_off_timer = NULL;
+bool g_is_emagnet_off_timer_started = false;
 int64_t alarm_time = 0; // for debug
 /* ***************************************************************************************************************** */
 /*                                              function prototype                                                   */
 /* ***************************************************************************************************************** */
-static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+static bool IRAM_ATTR timer_strum_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
 {
     BaseType_t high_task_awoken = pdFALSE;
 
@@ -51,60 +54,78 @@ static bool IRAM_ATTR timer_on_alarm_cb(gptimer_handle_t timer, const gptimer_al
     return (high_task_awoken == pdTRUE);
 }
 
+static bool IRAM_ATTR timer_idel_release_cb(gptimer_handle_t timer, const gptimer_alarm_event_data_t *edata, void *user_data)
+{
+    BaseType_t high_task_awoken = pdFALSE;
+
+    // stop timer immediately
+    gptimer_stop(timer);
+    // release the e-magnet
+    h_bridge_set(0, 0);
+    h_bridge_set(1, 0);
+    g_is_emagnet_off_timer_started = false;
+
+    return (high_task_awoken == pdTRUE);
+}
+
 void play_timer_init(void)
 {
-    // QueueHandle_t queue = xQueueCreate(10, sizeof(example_queue_element_t));
-    // if (!queue) {
-    //     ESP_LOGE(TAG, "Creating queue failed");
-    //     return;
-    // }
-
+    /* timer for strum */
     ESP_LOGI(TAG, "Create stepper motor timer handle");
-    gptimer_config_t timer_config = {
+    gptimer_config_t strum_timer_config = {
         .clk_src = GPTIMER_CLK_SRC_DEFAULT,
         .direction = GPTIMER_COUNT_UP,
         .resolution_hz = 1000000, // 1MHz, 1 tick=1us
     };
-    ESP_ERROR_CHECK(gptimer_new_timer(&timer_config, &g_gptimer));
+    ESP_ERROR_CHECK(gptimer_new_timer(&strum_timer_config, &g_strum_timer));
 
-    gptimer_event_callbacks_t cbs = {
-        .on_alarm = timer_on_alarm_cb,
+    gptimer_event_callbacks_t strum_cbs = {
+        .on_alarm = timer_strum_cb,
     };
-    ESP_ERROR_CHECK(gptimer_register_event_callbacks(g_gptimer, &cbs, NULL));
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(g_strum_timer, &strum_cbs, NULL));
 
-    ESP_LOGI(TAG, "Enable timer");
-    ESP_ERROR_CHECK(gptimer_enable(g_gptimer));
+    ESP_LOGI(TAG, "Enable strum timer");
+    ESP_ERROR_CHECK(gptimer_enable(g_strum_timer));
 
-    // ESP_LOGI(TAG, "Start timer, stop it at alarm event");
 
-    ESP_LOGI(TAG, "Create e-magnet timer handle");
+    /* timer for release press, when there is no note to play */
+    ESP_LOGI(TAG, "Create e-magnet release timer handle");
+    gptimer_config_t off_timer_config = {
+        .clk_src = GPTIMER_CLK_SRC_DEFAULT,
+        .direction = GPTIMER_COUNT_UP,
+        .resolution_hz = 1000000, // 1MHz, 1 tick=1us
+    };
+    ESP_ERROR_CHECK(gptimer_new_timer(&off_timer_config, &g_emagnet_off_timer));
+
+    gptimer_event_callbacks_t off_strum_cbs = {
+        .on_alarm = timer_idel_release_cb,
+    };
+    ESP_ERROR_CHECK(gptimer_register_event_callbacks(g_emagnet_off_timer, &off_strum_cbs, NULL));
+
+    ESP_LOGI(TAG, "Enable emagnet off timer");
+    ESP_ERROR_CHECK(gptimer_enable(g_emagnet_off_timer));
 }
 
-static int play_single_note(stepper_motor_act_t act_type, void *param)
+
+static void start_emagnet_off_timer(int delay_ms)
+{
+
+    ESP_ERROR_CHECK(gptimer_set_raw_count(g_emagnet_off_timer, 0)); // reset counter
+    gptimer_alarm_config_t alarm_config = {
+        .alarm_count = delay_ms * 1000, // convert to us
+    };
+    ESP_ERROR_CHECK(gptimer_set_alarm_action(g_emagnet_off_timer, &alarm_config));
+    if (g_is_emagnet_off_timer_started == false) {
+        ESP_ERROR_CHECK(gptimer_start(g_emagnet_off_timer));
+    }
+    g_is_emagnet_off_timer_started = true;
+}
+
+int play_single_note_by_pos(int pos)
 {
     int rc = ESP_OK;
 
-    /* get pos from other type */
-    int pos = 0;
-    switch (act_type) {
-    case ACT_POS:
-        int *tmp = (int *)param;
-        pos = *tmp;
-        break;
-    case ACT_LEN:
-        float *len = (float *)param;
-        pos = convert_len_to_pos(*len);
-        break;
-    case ACT_FREQ:
-        float *freq = (float *)param;
-        pos = convert_freq_to_pos(*freq);
-        break;
-    default:
-        ESP_LOGE(TAG, "act_type err: %d", act_type);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    // estimate stepper motor action time
+    /* estimate stepper motor action time */
     int ruler_estimated_time = calc_stepper_motor_time_by_pos(pos);
     if (ruler_estimated_time < 0) {
         return ruler_estimated_time;
@@ -120,7 +141,8 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         h_bridge_set(0, 0);
         h_bridge_set(1, 0);
     }
-    vTaskDelay(pdMS_TO_TICKS(20)); // TODO: 20 is ok? or 30?
+    start_emagnet_off_timer(E_MAGNET_FINAL_RELEASE_DELAY);
+    vTaskDelay(pdMS_TO_TICKS(20)); // Waiting for demagnetization, TODO: 20 is ok? or 30?
 #elif defined(CONFIG_HW_B_VER_1_0)
     if (ruler_estimated_time != 0) {
         h_bridge_set(1, 1); // release
@@ -137,7 +159,7 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
 
         rc = stepper_motor_action_by_pos(true, pos);
         if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
+            ESP_LOGE(TAG, "play fail, pos: %d", pos);
             return rc;
         }
 
@@ -160,16 +182,16 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         int64_t start_time = esp_timer_get_time();
         ESP_LOGD(TAG, "timer start time in: %llu ms, set timer: %d ms", start_time / 1000, ruler_estimated_time - SERVO_STRUM_PREPARE_TIME);
 
-        ESP_ERROR_CHECK(gptimer_set_raw_count(g_gptimer, 0)); // reset counter
+        ESP_ERROR_CHECK(gptimer_set_raw_count(g_strum_timer, 0)); // reset counter
         gptimer_alarm_config_t alarm_config = {
             .alarm_count = (ruler_estimated_time - SERVO_STRUM_PREPARE_TIME) * 1000,
         };
-        ESP_ERROR_CHECK(gptimer_set_alarm_action(g_gptimer, &alarm_config));
-        ESP_ERROR_CHECK(gptimer_start(g_gptimer)); // strum in timer callback
+        ESP_ERROR_CHECK(gptimer_set_alarm_action(g_strum_timer, &alarm_config));
+        ESP_ERROR_CHECK(gptimer_start(g_strum_timer)); // strum in timer callback
 
         rc = stepper_motor_action_by_pos(true, pos);
         if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
+            ESP_LOGE(TAG, "play fail, pos: %d", pos);
             return rc;
         }
 
@@ -188,20 +210,6 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
         ESP_LOGD(TAG, "timer alarm time in: %llu ms, timer cost: %llu ms", alarm_time / 1000, (alarm_time - start_time) / 1000);
     }
 
-    // rc = stepper_motor_action_by_pos(true, pos);
-    // if (rc != ESP_OK) {
-    //     ESP_LOGE(TAG, "play fail act_type: %d, pos: %d", act_type, pos);
-    //     return rc;
-    // }
-
-    // // press
-    // h_bridge_set(0, POLARITY_POSITIVE);
-    // h_bridge_set(1, POLARITY_NEGATIVE);
-
-    // // strum
-    // servo_motor_action(3);
-    // vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME));
-
     return rc;
 }
 
@@ -211,27 +219,24 @@ static int play_single_note(stepper_motor_act_t act_type, void *param)
  * @param freq
  * @return int
  */
-int play_sigle_note_by_freq(float freq)
+int play_single_note_by_freq(float freq)
 {
-    return play_single_note(ACT_FREQ, &freq);
+    int pos = convert_freq_to_pos(freq);
+    return play_single_note_by_pos(pos);
 }
 
-int play_sigle_note_by_len(float len)
+int play_single_note_by_len(float len)
 {
-    return play_single_note(ACT_LEN, &len);
+    int pos = convert_len_to_pos(len);
+    return play_single_note_by_pos(pos);
 }
 
-int play_sigle_note_by_pos(int pos)
-{
-    return play_single_note(ACT_POS, &pos);
-}
-
-int play_sigle_note_by_midi(int midi)
+int play_single_note_by_midi(int midi)
 {
     if (midi < 0 || midi > 127) {
         ESP_LOGE(TAG, "Invalid MIDI number: %d", midi);
         return ESP_ERR_INVALID_ARG;
     }
     float freq = convert_midi_to_freq(midi);
-    return play_sigle_note_by_freq(freq);
+    return play_single_note_by_freq(freq);
 }

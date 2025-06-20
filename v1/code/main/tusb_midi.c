@@ -124,9 +124,9 @@ static void midi_task_read_example(void *arg)
                     ESP_LOGI(TAG, "Note On: channel=%d note=%d velocity=%d", channel + 1, data1, data2);
                     if (g_input_channel == 0xff || channel == g_input_channel) {
                         if (data2 > 0) {
-                            rc = play_sigle_note_by_midi(data1);
+                            rc = play_single_note_by_midi(data1);
                             if (rc != ESP_OK) {
-                                ESP_LOGE(TAG, "play_sigle_note_by_midi fail!");
+                                ESP_LOGE(TAG, "play_single_note_by_midi fail!");
                             }
                         }
                     }

@@ -14,6 +14,8 @@
 #include "tusb_midi.h"
 #include "play.h"
 
+#define TAG "MAIN"
+
 /*
  vTaskGetRunTimeStats() 使用
  注意:

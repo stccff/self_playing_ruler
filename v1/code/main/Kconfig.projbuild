@@ -20,4 +20,11 @@ menu "Ruler Instrument Configuration"
         config HW_B_VER_1_0
             bool "B_V1.0"
     endchoice
+
+    config HW_A_VER_1
+        bool
+        default y if HW_A_VER_1_0 || HW_A_VER_1_1
+        default n
+        help
+            Automatically set for any A-series hardware
 endmenu

@@ -68,7 +68,7 @@ static bool IRAM_ATTR timer_idel_release_cb(gptimer_handle_t timer, const gptime
     return (high_task_awoken == pdTRUE);
 }
 
-void play_timer_init(void)
+void play_init(void)
 {
     /* timer for strum */
     ESP_LOGI(TAG, "Create stepper motor timer handle");

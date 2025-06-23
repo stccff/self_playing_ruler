@@ -4,7 +4,6 @@
 
 #include <stdint.h>
 
-extern void init_nvs_for_freq_table(void);
 extern int freq_table_init(bool force_init);
 extern int freq_table_clear(void);
 extern int freq_table_show(void);

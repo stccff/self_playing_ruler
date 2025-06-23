@@ -83,7 +83,7 @@
 #define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
 #define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
-#define RULLER_FREQ_SAMPLE_NUM 50
+#define RULLER_FREQ_SAMPLE_NUM 60
 #define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
 
 #define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
@@ -389,42 +389,30 @@ static void action_init(void)
     /* Screw stepper motor init */
     ESP_LOGI(TAG, "Move to central position");
 
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
-    g_tx_config.loop_count = MAX_STEP + 10 * (1 << MODE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE); // len max dir
+    g_tx_config.loop_count = MAX_STEP;
     uint32_t speed = SPEED_LOW_HZ;
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(20 / portTICK_PERIOD_MS);
 
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
-    g_tx_config.loop_count = MAX_STEP + 10 * (1 << MODE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE); // len max dir
+    g_tx_config.loop_count = MAX_STEP * 1.2;
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(20 / portTICK_PERIOD_MS);
 
     g_tx_config.loop_count = MAX_STEP / 2;
-    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
+    gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_CLOCKWISE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(20 / portTICK_PERIOD_MS);
 
     gpio_set_level(STEP_MOTOR_GPIO_EN, 1); // disable motor
 
     // init current position
     g_curr_pos = MAX_STEP / 2;
     g_last_dir = STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE;
-}
-
-void init_nvs_for_freq_table(void)
-{
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        // NVS partition was truncated and needs to be erased
-        // Retry nvs_flash_init
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        err = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK(err);
 }
 
 

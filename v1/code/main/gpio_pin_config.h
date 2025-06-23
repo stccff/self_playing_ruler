@@ -19,12 +19,12 @@
 
 /* servo motor GPIOs */
 #define SERVO_STRUM_GPIO 47 // GPIO number for strum servo
-#ifdef CONFIG_SERVO_FRET
+#ifdef CONFIG_HW_PROTOTYPE
 #define SERVO_FRET_GPIO -1  // GPIO number for fret servo
-#endif // CONFIG_SERVO_FRET
+#endif // CONFIG_HW_PROTOTYPE
 
 /* stepper motor GPIOs */
-#define STEP_MOTOR_GPIO_EN 0
+#define STEP_MOTOR_GPIO_EN 6
 #define STEP_MOTOR_GPIO_DIR 2
 #define STEP_MOTOR_GPIO_STEP 4
 #define STEP_MOTOR_MODE0_PIN 40

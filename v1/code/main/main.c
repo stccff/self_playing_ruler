@@ -13,6 +13,7 @@
 #include "h_bridge.h"
 #include "tusb_midi.h"
 #include "play.h"
+#include "nvs_flash.h"
 
 #define TAG "MAIN"
 
@@ -39,15 +40,27 @@ void print_task_info(char *buff)
     printf("%s\n", buff);
 }
 
+void init_nvs(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        // NVS partition was truncated and needs to be erased
+        // Retry nvs_flash_init
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+}
+
 void app_main(void)
 {
-    i2s_driver_init();
     h_bridge_init();
+    init_nvs();
     servo_motor_init();
-    init_nvs_for_freq_table();
     stepper_motor_init();
+    i2s_driver_init();
     midi_init();
-    play_timer_init();
+    play_init();
     uart_init();
 
     vTaskDelay(pdMS_TO_TICKS(1000));

@@ -5,6 +5,7 @@
 #include "driver/mcpwm_prelude.h"
 #include "servo_motor.h"
 #include "gpio_pin_config.h"
+#include "nvs_flash.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -18,26 +19,64 @@
 #define SERVO_TIMEBASE_RESOLUTION_HZ 1000000 // 1MHz, 1us per tick
 #define SERVO_TIMEBASE_PERIOD 20000          // 20000 ticks, 20ms
 
-#define SERVO_STRUM_UP_ANGLE 25
-#define SERVO_STRUM_DOWN_ANGLE -30
+// #define SERVO_STRUM_UP_ANGLE 25
+// #define SERVO_STRUM_DOWN_ANGLE -30
+#define SERVO_STRUM_ANGLE 28
 
-#ifdef CONFIG_SERVO_FRET
+#ifdef CONFIG_HW_PROTOTYPE
 #define SERVO_FRET_UP_ANGLE 70
 #define SERVO_FRET_DOWN_ANGLE 85
 #endif
 
 #define SERVO_SPEED 0.12 // s/60degree
+
+#define STORAGE_NAMESPACE "servo_motor"
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
 /* ***************************************************************************************************************** */
-
+typedef struct {
+    struct {
+        char *name;
+        int output_gpio;
+        int polarity;
+        int init_angle;
+    } const cfg;
+    int mid_angle;
+    mcpwm_cmpr_handle_t pwm_handle;
+    int curr_angle;
+} servo_t;
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
 static const char *TAG = "servo_motor";
 TaskHandle_t g_servo_task_handle = NULL;
-mcpwm_cmpr_handle_t g_servo_handle[2] = {NULL};
-int g_strum_angle = SERVO_STRUM_UP_ANGLE;
+
+static servo_t g_servo[] = {
+    { // strum servo
+        .cfg = {
+            .name = "strum",
+            .output_gpio = SERVO_STRUM_GPIO,
+            .polarity = 1,
+            .init_angle = SERVO_STRUM_ANGLE,
+        },
+        .pwm_handle = NULL,
+        .mid_angle = 0,
+        .curr_angle = 0,
+    },
+#ifdef CONFIG_HW_PROTOTYPE
+    { // fret servo
+        .cfg = {
+            .name = "fret",
+            .output_gpio = SERVO_FRET_GPIO,
+            .polarity = 1,
+            .init_angle = SERVO_FRET_UP_ANGLE,
+        },
+        .pwm_handle = NULL,
+        .mid_angle = 0xffffffff,
+        .curr_angle = SERVO_FRET_UP_ANGLE,
+    },
+#endif
+};
 
 
 
@@ -98,25 +137,27 @@ mcpwm_cmpr_handle_t pwm_create(int output_gpio)
     return comparator;
 }
 
+
 void servo_motor_action(int act_idx)
 {
     switch (act_idx) {
-#ifdef CONFIG_SERVO_FRET
+#ifdef CONFIG_HW_PROTOTYPE
     case 1 :
         /* Release */
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE - 30)));
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE)));
+        servo_set_angle(1, SERVO_FRET_UP_ANGLE);
         break;
     case 2 :
         /* Fret */
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_DOWN_ANGLE -30)));
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_DOWN_ANGLE)));
+        servo_set_angle(1, SERVO_FRET_DOWN_ANGLE);
         break;
 #endif
     case 3 :
         /* Strum */
-        g_strum_angle = (g_strum_angle == SERVO_STRUM_UP_ANGLE) ? SERVO_STRUM_DOWN_ANGLE : SERVO_STRUM_UP_ANGLE;
-        ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[0], angle_to_compare(g_strum_angle)));
+        if (g_servo[0].curr_angle >= 0) {
+            servo_set_angle(0, -SERVO_STRUM_ANGLE);
+        } else {
+            servo_set_angle(0, SERVO_STRUM_ANGLE);
+        }
         break;
     default:
         ESP_LOGE(TAG, "Invalid action index: %d", act_idx);
@@ -126,9 +167,9 @@ void servo_motor_action(int act_idx)
     return;
 }
 
-int set_servo_angle(int servo_idx, int angle)
+static int param_check(int servo_idx, int angle)
 {
-    if (servo_idx < 0 || servo_idx >= sizeof(g_servo_handle) / sizeof(g_servo_handle[0])) {
+    if (servo_idx < 0 || servo_idx >= sizeof(g_servo) / sizeof(g_servo[0])) {
         ESP_LOGE(TAG, "Invalid servo index: %d", servo_idx);
         return ESP_ERR_INVALID_ARG;
     }
@@ -136,24 +177,98 @@ int set_servo_angle(int servo_idx, int angle)
         ESP_LOGE(TAG, "Invalid servo angle: %d", angle);
         return ESP_ERR_INVALID_ARG;
     }
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[servo_idx], angle_to_compare(angle)));
+    return ESP_OK;
+}
+
+int servo_set_angle(int servo_idx, int angle)
+{
+    int rc = param_check(servo_idx, angle);
+    if (rc != ESP_OK) {
+        return rc;
+    }
+    int real_angle = angle + g_servo[servo_idx].mid_angle;
+    if (real_angle < SERVO_MIN_DEGREE || real_angle > SERVO_MAX_DEGREE) {
+        ESP_LOGE(TAG, "angle %d + middle %d = %d, is out of range [%d, %d]", angle, g_servo[servo_idx].mid_angle, real_angle, SERVO_MIN_DEGREE, SERVO_MAX_DEGREE);
+        return ESP_ERR_INVALID_ARG;
+    }
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo[servo_idx].pwm_handle, angle_to_compare(real_angle)));
+    g_servo[servo_idx].curr_angle = angle;
 
     return ESP_OK;
 }
 
 void servo_motor_init(void)
 {
-    g_servo_handle[0] = pwm_create(SERVO_STRUM_GPIO);
-    g_strum_angle = SERVO_STRUM_UP_ANGLE;
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[0], angle_to_compare(SERVO_STRUM_UP_ANGLE)));
+    /* get middle angle from NVS */
+    // Open
+    nvs_handle_t nvs_handle;
+    int rc = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle, use default angle 0", esp_err_to_name(rc));
+    } else {
+        for (int i = 0; i < sizeof(g_servo) / sizeof(g_servo[0]); i++) {
+            // check if the middle angle is exists
+            int32_t angle = 0;
+            rc = nvs_get_i32(nvs_handle, g_servo->cfg.name, &angle);
+            if (rc != ESP_OK) {
+                if (rc == ESP_ERR_NVS_NOT_FOUND) {
+                    /* nvs not exist */
+                    rc = ESP_OK;
+                    ESP_LOGW(TAG, "servo middle angle not found in NVS, use default angle 0");
+                } else {
+                    // Other error
+                    ESP_LOGE(TAG, "Error (%s) reading NVS, use default angle 0", esp_err_to_name(rc));
+                }
+            } else {
+                // nvs exist
+                g_servo[i].mid_angle = angle;
+                ESP_LOGI(TAG, "g_servo[%d].mid_angle = %d, loaded from NVS", i, g_servo[i].mid_angle);
+            }
+        }
+    }
+    nvs_close(nvs_handle);
 
-#ifdef CONFIG_SERVO_FRET
-    g_servo_handle[1] = pwm_create(SERVO_FRET_GPIO);
-    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo_handle[1], angle_to_compare(SERVO_FRET_UP_ANGLE)));
-#endif // CONFIG_SERVO_FRET
 
+    /* init pwm and angle */
+    for (int i = 0; i < sizeof(g_servo) / sizeof(g_servo[0]); i++) {
+        g_servo[i].pwm_handle = pwm_create(g_servo[i].cfg.output_gpio);
+        int init_angle = g_servo[i].cfg.init_angle;
+        servo_set_angle(i, init_angle);
+    }
 
     vTaskDelay(500 / portTICK_PERIOD_MS);   // wait for servo motor action to finish
 
     return;
+}
+
+int servo_set_middle_angle(int servo_idx, int mid_angle)
+{
+    int rc = param_check(servo_idx, mid_angle);
+    if (rc != ESP_OK) {
+        return rc;
+    }
+    /* set */
+    g_servo[servo_idx].mid_angle = mid_angle;
+    servo_set_angle(servo_idx, g_servo[servo_idx].curr_angle); // reset positon
+
+
+    /* write to nvs */
+    nvs_handle_t nvs_handle;
+    rc = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle", esp_err_to_name(rc));
+    } else {
+        for (int i = 0; i < sizeof(g_servo) / sizeof(g_servo[0]); i++) {
+            rc = nvs_set_i32(nvs_handle, g_servo->cfg.name, (int32_t)mid_angle);
+            if (rc != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) writing NVS, It is only effective before reboot", esp_err_to_name(rc));
+            }
+        }
+    }
+    nvs_close(nvs_handle);
+
+
+    ESP_LOGI(TAG, "Set servo[%d] middle angle to %d", servo_idx, mid_angle);
+
+    return ESP_OK;
 }

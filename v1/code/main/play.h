@@ -6,6 +6,6 @@ extern int play_single_note_by_pos(int pos);
 extern int play_single_note_by_freq(float freq);
 extern int play_single_note_by_len(float len);
 extern int play_single_note_by_midi(int midi);
-extern void play_timer_init(void);
+extern void play_init(void);
 
 #endif // __PLAY_H

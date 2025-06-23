@@ -61,13 +61,16 @@ static int do_cmd_clear_freq_table(char *data);
 static int do_cmd_freq_table_show(char *data);
 static int do_cmd_set_midi_chan(char *data);
 static int do_cmd_set(char *data);
-static int do_cmd_play(char *data);
-static int do_cmd_testlen(char *data);
-static int do_cmd_testpos(char *data);
+static int do_cmd_play_by_note(char *data);
+static int do_cmd_play_by_len(char *data);
+static int do_cmd_play_by_pos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
 static int do_cmd_testbdc(char *data);
 static int do_cmd_servo(char *data);
+static int do_cmd_servo_mid(char *data);
+static int do_cmd_stepper_motor(char *data);
+
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
@@ -78,16 +81,18 @@ cmd_table_t g_cmd_table[] = {
     {"ftclear", do_cmd_clear_freq_table, "", "clear frequency table"},
     {"ftshow", do_cmd_freq_table_show, "", "print frequency table"},
     {"midich", do_cmd_set_midi_chan, "<ch>", "set actived midi input channel"},
-    {"testlen", do_cmd_testlen, "<len>", "ruler play by length"},
-    {"testpos", do_cmd_testpos, "<pos>", "ruler play by stepper motor absolute position"},
-    {"testmagnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
-    {"testmagnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
-    {"testbdc", do_cmd_testbdc, "<polary> <delay_ms>", "run brushed DC motor"},
-    {"testservo", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
+    {"playlen", do_cmd_play_by_len, "<len>", "ruler play by length"},
+    {"playpos", do_cmd_play_by_pos, "<pos>", "ruler play by stepper motor absolute position"},
+    {"magnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
+    {"magnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
+    {"bdc", do_cmd_testbdc, "<polary> <delay_ms>", "run brushed DC motor"},
+    {"servoangle", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
+    {"servomid", do_cmd_servo_mid, "<index> <angle>", "set servo motor midle angle"},
+    {"stepper", do_cmd_stepper_motor, "<step>", "set stepper motor positon"},
 
     /* legacy prototype compatible commands */
     {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
-    {"p", do_cmd_play, "<note>", "play the note, eg.'#2.' means high re sharp"},
+    {"p", do_cmd_play_by_note, "<note>", "play the note, eg.'#2.' means high re sharp"},
 };
 
 static int do_cmd_help(char *data)
@@ -95,7 +100,7 @@ static int do_cmd_help(char *data)
     printf("Usage: cmd [param]...\n");
     printf("List of cmd:\n");
     for (int i = 0; i < sizeof(g_cmd_table) / sizeof(g_cmd_table[0]); i++) {
-        printf("%s %s: %s\n", g_cmd_table[i].cmd, g_cmd_table[i].param_info, g_cmd_table[i].help_info);
+        printf("%s %s:\n\t%s\n", g_cmd_table[i].cmd, g_cmd_table[i].param_info, g_cmd_table[i].help_info);
     }
     return ESP_OK;
 }
@@ -115,7 +120,7 @@ static int do_cmd_set(char *data)
 #define POLARITY_POSITIVE 1
 #define POLARITY_NEGATIVE -1
 
-static int do_cmd_play(char *data)
+static int do_cmd_play_by_note(char *data)
 {
     int midi = parse_simple_note_to_midi(data);
     float freq = convert_midi_to_freq(midi);
@@ -124,7 +129,7 @@ static int do_cmd_play(char *data)
     return play_single_note_by_freq(freq);
 }
 
-static int do_cmd_testlen(char *data)
+static int do_cmd_play_by_len(char *data)
 {
     double len = 0;
     int rc = sscanf(data, "%lf\n", &len);
@@ -136,7 +141,7 @@ static int do_cmd_testlen(char *data)
     return play_single_note_by_len(len);
 }
 
-static int do_cmd_testpos(char *data)
+static int do_cmd_play_by_pos(char *data)
 {
     int pos = 0;
     int rc = sscanf(data, "%d\n", &pos);
@@ -252,9 +257,35 @@ static int do_cmd_servo(char *data)
         ESP_LOGE(TAG, "Invalid test servo command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
-    return set_servo_angle(index, angle);
+    return servo_set_angle(index, angle);
 }
 
+static int do_cmd_servo_mid(char *data)
+{
+    int index = 0;
+    int angle = 0;
+    int rc = sscanf(data, "%d %d\n", &index, &angle);
+    if (rc != 2) {
+        ESP_LOGE(TAG, "Invalid servomid command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+    return servo_set_middle_angle(index, angle);
+}
+
+static int do_cmd_stepper_motor(char *data)
+{
+    int step = 0;
+    int rc = sscanf(data, "%d\n", &step);
+    if (rc != 1) {
+        ESP_LOGE(TAG, "Invalid stepper motor command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    h_bridge_set(0, 0);
+    h_bridge_set(1, 0);
+
+    return stepper_motor_action_by_pos(true, step);
+}
 
 /**
  * @brief

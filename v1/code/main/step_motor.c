@@ -50,7 +50,7 @@
 #define SPEED_HZ (2000 * (1 << MODE))
 
 // ruler features
-#define RULER_LEN_MIN 14.52   // mm
+#define RULER_LEN_MIN 15.67   // mm
 #define RULER_LEN_MAX 64.67  // mm
 
 #define RULER_LEN_MUSIC_MIN 22.0 // mm
@@ -84,7 +84,7 @@
 #define SCREW_BACKLASH (2 * (1 << MODE)) // step
 
 #define RULLER_FREQ_SAMPLE_NUM 60
-#define RULLER_FREQ_SAMPLE_TOLERANCE 0.2
+#define RULLER_FREQ_SAMPLE_TOLERANCE 0.25
 
 #define STEP_MOTOR_ENABLE_LEVEL 0 // DRV8825 is enabled on low level
 #define STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE !STEP_MOTOR_SPIN_DIR_CLOCKWISE
@@ -92,8 +92,8 @@
 
 // ruler features
 /* formula f=k/(L^2)+b, L=(k/(f-b))^(1/2) */
-#define SLOPE_K 172767.3698
-#define INTERCEPT_B 20.1147953
+#define SLOPE_K 217560.0345
+#define INTERCEPT_B 10.14935316
 
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
@@ -428,7 +428,7 @@ static int measure_frequency(float len, float *freq)
     float target = get_freq_by_formula(len);
     rc = get_sound_frequency(target*(1-RULLER_FREQ_SAMPLE_TOLERANCE), target*(1+RULLER_FREQ_SAMPLE_TOLERANCE), freq, true);
     if (rc != ESP_OK) {
-        ESP_LOGE(TAG, "measure get sound frequency fail");
+        ESP_LOGE(TAG, "measure get sound frequency fail, rc = %d", rc);
         return rc;
     }
 

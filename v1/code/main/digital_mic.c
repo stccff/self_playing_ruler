@@ -233,11 +233,18 @@ int get_sound_frequency(float min, float max, float *freq, bool print)
         return ESP_ERR_NOT_FOUND;
     }
     // Tri-node parabolic interpolation
+    if (buff[k] < buff[k-1] || buff[k] < buff[k+1]) {
+        if (print) {
+            ESP_LOGE(TAG, "max value is not in the middle of three nodes, k = %d, [%f %f %f]", k, buff[k-1], buff[k], buff[k+1]);
+        }
+        return ESP_ERR_NOT_FOUND;
+    }
     float delt = (buff[k+1] - buff[k-1]) / (4*buff[k] - 2*buff[k-1] - 2*buff[k+1]);
     float vertex = (k + delt) * EXAMPLE_SAMPLE_RATE / size;
     float freq_max = (float)k * EXAMPLE_SAMPLE_RATE / size;
     if (print) {
         ESP_LOGI(TAG, "max freq = %f, vertex freq = %f", freq_max, vertex);
+        ESP_LOGD(TAG, "k = %d, delt = %f, [%.2f %.2f %.2f]", k, delt, buff[k-1], buff[k], buff[k+1]);
     }
     *freq = vertex;
 

@@ -53,7 +53,7 @@
 #define RULER_LEN_MIN 15.67   // mm
 #define RULER_LEN_MAX 64.67  // mm
 
-#define RULER_LEN_MUSIC_MIN 22.0 // mm
+#define RULER_LEN_MUSIC_MIN 23.0 // mm
 #define RULER_LEN_MUSIC_MAX 64.5 // mm
 #endif
 

@@ -27,8 +27,8 @@
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
 int g_hbridge_io_cfg[2][2] = {
-    {MOTOR_A_1_IO, MOTOR_A_2_IO},
-    {MOTOR_B_1_IO, MOTOR_B_2_IO},
+    {MOTOR_B_1A_IO, MOTOR_B_1B_IO},
+    {MOTOR_A_1A_IO, MOTOR_A_1B_IO},
 };
 
 void h_bridge_init(void)
@@ -37,8 +37,8 @@ void h_bridge_init(void)
     gpio_config_t magnet_io_cfg = {
         .mode = GPIO_MODE_OUTPUT,
         .intr_type = GPIO_INTR_DISABLE,
-        .pin_bit_mask = 1ULL << MOTOR_A_1_IO | 1ULL << MOTOR_A_2_IO |
-                        1ULL << MOTOR_B_1_IO | 1ULL << MOTOR_B_2_IO,
+        .pin_bit_mask = 1ULL << MOTOR_B_1A_IO | 1ULL << MOTOR_B_1B_IO |
+                        1ULL << MOTOR_A_1A_IO | 1ULL << MOTOR_A_1B_IO,
     };
     ESP_ERROR_CHECK(gpio_config(&magnet_io_cfg));
 

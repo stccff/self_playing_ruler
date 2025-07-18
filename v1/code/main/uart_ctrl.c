@@ -15,7 +15,7 @@
 #include "esp_timer.h"
 #include "h_bridge.h"
 #include "play.h"
-#include "tusb_midi.h"
+#include "tinyusb_device.h"
 
 // uart configurations
 #define ECHO_TEST_TXD (43)

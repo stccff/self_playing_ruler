@@ -11,7 +11,7 @@
 #include "uart_ctrl.h"
 #include "digital_mic.h"
 #include "h_bridge.h"
-#include "tusb_midi.h"
+#include "tinyusb_device.h"
 #include "play.h"
 #include "nvs_flash.h"
 
@@ -59,9 +59,9 @@ void app_main(void)
     servo_motor_init();
     stepper_motor_init();
     i2s_driver_init();
-    midi_init();
     play_init();
     uart_init();
+    tinyusb_device_init();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
 

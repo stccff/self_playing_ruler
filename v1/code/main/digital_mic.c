@@ -1,5 +1,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "freertos/queue.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "driver/i2s_std.h"
@@ -7,6 +9,7 @@
 #include "signal_fft.h"
 #include "gpio_pin_config.h"
 #include "math.h"
+
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -19,9 +22,9 @@ static i2s_chan_handle_t rx_handle = NULL;
 #define EXAMPLE_SAMPLE_RATE (8000)
 #define EXAMPLE_BIT_WIDTH   I2S_SLOT_BIT_WIDTH_24BIT
 #define EXAMPLE_SLOT_WIDTH  I2S_SLOT_BIT_WIDTH_32BIT
-#define EXAMPLE_DMA_FRAME_NUM 384
+#define EXAMPLE_DMA_FRAME_NUM 96
 #define EXAMPLE_DMA_DESC_NUM 6
-#define ONCE_READ_SAMPLE    (256)
+// #define ONCE_READ_SAMPLE    (256)
 #define INMP441_STANDBY_CLK (1 << 14)
 #define INMP441_STANDBY_BYTES (INMP441_STANDBY_CLK / (EXAMPLE_SLOT_WIDTH * 2) * EXAMPLE_BIT_WIDTH / 8) // standby invalid data(each period has 2 slot, only 1 slot is valid in mono mode)
 #define SAMPLE_MAX_VALUE ((1 << (EXAMPLE_BIT_WIDTH - 1)) - 1)
@@ -32,10 +35,39 @@ static i2s_chan_handle_t rx_handle = NULL;
 /* ***************************************************************************************************************** */
 /*                                               global variable                                                     */
 /* ***************************************************************************************************************** */
-int g_fft_size = 0; // global variable for fft size, used in do_fft()
-uint8_t *g_i2s_buff = NULL;
-float *g_fft_buff = NULL;
+static int g_fft_size = 0; // global variable for fft size, used in do_fft()
+static uint8_t *g_i2s_buff = NULL;
+static float *g_fft_buff = NULL;
+static int g_sample_rate = EXAMPLE_SAMPLE_RATE; // global variable for sample rate, used in do_fft()
+static bool i2s_channel_enabled = false;
 
+void mic_enable(bool enable)
+{
+    if (enable == i2s_channel_enabled) {
+        ESP_LOGW(TAG, "I2S channel already %s", enable ? "enabled" : "disabled");
+        return;
+    }
+
+    if (enable) {
+        ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+        i2s_channel_enabled = true;
+    } else {
+        ESP_ERROR_CHECK(i2s_channel_disable(rx_handle));
+        i2s_channel_enabled = false;
+    }
+}
+
+void mic_reconfig_sample_rate(int sample_rate)
+{
+    i2s_std_clk_config_t clk_cfg = {
+        .sample_rate_hz = sample_rate,
+        .clk_src = I2S_CLK_SRC_DEFAULT,
+        .ext_clk_freq_hz = 0,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_384,
+    };
+    ESP_ERROR_CHECK(i2s_channel_reconfig_std_clock(rx_handle, &clk_cfg));
+    g_sample_rate = sample_rate; // update global sample rate
+}
 
 void i2s_driver_init(void)
 {
@@ -89,36 +121,34 @@ void i2s_driver_init(void)
     };
 
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle, &std_cfg));
-    ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
+    // ESP_ERROR_CHECK(i2s_channel_enable(rx_handle));
 
     return;
 }
 
-static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, bool is_dma_clear)
+// TODO: check this function if it is invalid when idf update.
+/* idf not support clear dma function, so I use i2s privete files */
+#include "i2s_private.h"
+static void clear_i2s_dma(i2s_chan_handle_t handle)
+{
+    ESP_ERROR_CHECK(xSemaphoreTake(handle->binary, pdMS_TO_TICKS(10)) == pdFALSE);
+    xQueueReset(handle->msg_queue);
+    handle->dma.rw_pos = 0;
+    handle->dma.curr_ptr = NULL;
+    ESP_ERROR_CHECK(xSemaphoreGive(handle->binary) == pdFALSE);
+}
+
+
+int read_mic_data(uint8_t *i2s_buff, float *out_buff, size_t sample_num, bool is_dma_clear)
 {
     int rc = ESP_OK;
     size_t bytes_read = 0;
     size_t date_bytes = EXAMPLE_BIT_WIDTH / 8;
-    size_t bytes_to_read = signal_len * date_bytes;
+    size_t bytes_to_read = sample_num * date_bytes;
 
     // clear the dma buffer
     if (is_dma_clear) {
-        // size_t standby_bytes = INMP441_STANDBY_BYTES;
-        size_t dma_buffer_bytes = EXAMPLE_DMA_DESC_NUM * EXAMPLE_DMA_FRAME_NUM * EXAMPLE_BIT_WIDTH / 8; // dma legacy data, clear dma // TODO: if not full
-        size_t skip_bytes = dma_buffer_bytes;
-        uint8_t *skip_buff = (uint8_t *)malloc(skip_bytes);
-        if (skip_buff == NULL) {
-            ESP_LOGE(TAG, "malloc failed");
-            return ESP_ERR_NO_MEM;
-        }
-        ESP_LOGI(TAG, "read skip data: %d", skip_bytes);
-        rc = i2s_channel_read(rx_handle, skip_buff, skip_bytes, &bytes_read, 1000);
-        if (rc != ESP_OK) {
-            ESP_LOGE(TAG, "Read Failed!, rc=%d, bytes_read=%d", rc, bytes_read);
-            free(skip_buff);
-            return rc;
-        }
-        free(skip_buff);
+        clear_i2s_dma(rx_handle);
     }
 
     // read the mic data
@@ -128,11 +158,12 @@ static int read_mic_data(uint8_t *i2s_buff, float *fft_buff, size_t signal_len, 
         ESP_LOGE(TAG, "Read Failed!, rc=%d, bytes_read=%d", rc, bytes_read);
         return rc;
     }
-
-    for (size_t i = 0; i < bytes_to_read / (EXAMPLE_BIT_WIDTH / 8); i++) {
-        int tmp = (i2s_buff[i*date_bytes+2] << 16) | (i2s_buff[i*date_bytes+1] << 8) | i2s_buff[i*date_bytes];
-        // printf("%d\n", (tmp << 8) >> 8);
-        fft_buff[i] = (tmp << 8) >> 8; // add sign extension
+    if (out_buff != NULL) {
+        for (size_t i = 0; i < bytes_to_read / (EXAMPLE_BIT_WIDTH / 8); i++) {
+            int tmp = (i2s_buff[i*date_bytes+2] << 16) | (i2s_buff[i*date_bytes+1] << 8) | i2s_buff[i*date_bytes];
+            // printf("%d\n", (tmp << 8) >> 8);
+            out_buff[i] = (tmp << 8) >> 8; // add sign extension
+        }
     }
 
     return rc;
@@ -212,8 +243,8 @@ int get_sound_frequency(float min, float max, float *freq, bool print)
 
     float *buff = g_fft_buff;
     size_t size = g_fft_size;
-    int freq_min_index = (int)(min / ((float)EXAMPLE_SAMPLE_RATE / (float)size));
-    int freq_max_index = (int)(max / ((float)EXAMPLE_SAMPLE_RATE / (float)size));
+    int freq_min_index = (int)(min / ((float)g_sample_rate / (float)size));
+    int freq_max_index = (int)(max / ((float)g_sample_rate / (float)size));
     if (freq_max_index >= size / 2) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -240,8 +271,8 @@ int get_sound_frequency(float min, float max, float *freq, bool print)
         return ESP_ERR_NOT_FOUND;
     }
     float delt = (buff[k+1] - buff[k-1]) / (4*buff[k] - 2*buff[k-1] - 2*buff[k+1]);
-    float vertex = (k + delt) * EXAMPLE_SAMPLE_RATE / size;
-    float freq_max = (float)k * EXAMPLE_SAMPLE_RATE / size;
+    float vertex = (k + delt) * g_sample_rate / size;
+    float freq_max = (float)k * g_sample_rate / size;
     if (print) {
         ESP_LOGI(TAG, "max freq = %f, vertex freq = %f", freq_max, vertex);
         ESP_LOGD(TAG, "k = %d, delt = %f, [%.2f %.2f %.2f]", k, delt, buff[k-1], buff[k], buff[k+1]);

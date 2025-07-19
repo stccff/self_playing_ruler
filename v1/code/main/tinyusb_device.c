@@ -18,8 +18,10 @@
 #include "freertos/queue.h"
 #include "freertos/timers.h"
 #include "driver/gptimer.h"
-#include "play.h" // TODO: should not dependence up layer function
+#include "play.h"
+#include "digital_mic.h"
 #include "tinyusb_device.h"
+
 
 #define TAG "tinyusb"
 
@@ -48,6 +50,8 @@ enum
 
 static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
+static bool g_audio_streaming_enabled = false;
+
 
 // Audio controls
 // Current states
@@ -62,10 +66,9 @@ audio_control_range_4_n_t(1) sampleFreqRng;                                     
 
 #if CFG_TUD_AUDIO_ENABLE_ENCODING
 // Audio test data, each buffer contains 2 channels, buffer[0] for CH0-1, buffer[1] for CH1-2
-uint16_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO][CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX * CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE / 1000 / CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO];
+// uint16_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO][CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX * CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE / 1000 / CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO];
 #else
-// Audio test data, 4 channels muxed together, buffer[0] for CH0, buffer[1] for CH1, buffer[2] for CH2, buffer[3] for CH3
-uint16_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX * CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE / 1000];
+uint8_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX * CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX * AUDIO_SAMPLE_RATE / 1000];
 #endif
 
 
@@ -119,7 +122,7 @@ static void create_timer(void)
 
     gptimer_alarm_config_t alarm_config = {
         .reload_count = 0,      // 当警报事件发生时，定时器会自动重载到 0
-        .alarm_count = 1000, // 设置实际的警报周期，因为分辨率是 1us，所以 1000000 代表 1s
+        .alarm_count = 1000, // 设置实际的警报周期，因为分辨率是 1us，所以 1000 代表 1ms
         .flags.auto_reload_on_alarm = true, // 使能自动重载功能
     };
     // 设置定时器的警报动作
@@ -169,46 +172,6 @@ int tinyusb_device_init(void)
     sampleFreqRng.subrange[0].bMin = AUDIO_SAMPLE_RATE;
     sampleFreqRng.subrange[0].bMax = AUDIO_SAMPLE_RATE;
     sampleFreqRng.subrange[0].bRes = 0;
-
-    // Generate dummy data
-#if CFG_TUD_AUDIO_ENABLE_ENCODING
-    uint16_t *p_buff = i2s_dummy_buffer[0];
-    // uint16_t dataVal = 0;
-    // for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++)
-    // {
-    //     // CH0 saw wave
-    //     *p_buff++ = dataVal;
-    //     // CH1 inverted saw wave
-    //     *p_buff++ = 3200 + AUDIO_SAMPLE_RATE / 1000 - dataVal;
-    //     dataVal += 32;
-    // }
-    // p_buff = i2s_dummy_buffer[1];
-    for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++)
-    {
-        // // CH3 square wave
-        // *p_buff++ = cnt < (AUDIO_SAMPLE_RATE / 1000 / 2) ? 3400 : 5000;
-        // CH4 sinus wave
-        float t = 2 * 3.1415f * cnt / (AUDIO_SAMPLE_RATE / 1000);
-        p_buff[cnt] = (uint16_t)((int16_t)(sinf(t) * 750) + 6000);
-    }
-#else
-    uint16_t *p_buff = i2s_dummy_buffer;
-    // uint16_t dataVal = 0;
-    for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++)
-    {
-        // // CH0 saw wave
-        // *p_buff++ = dataVal;
-        // // CH1 inverted saw wave
-        // *p_buff++ = 3200 + AUDIO_SAMPLE_RATE / 1000 - dataVal;
-        // dataVal += 32;
-        // // CH3 square wave
-        // *p_buff++ = cnt < (AUDIO_SAMPLE_RATE / 1000 / 2) ? 3400 : 5000;
-        // CH4 sinus wave
-        float t = 2 * 3.1415f * cnt / (AUDIO_SAMPLE_RATE / 1000);
-        *p_buff++ = (uint16_t)((int16_t)(sinf(t) * 750) + 6000);
-    }
-#endif
-
 
     // tud_sof_cb_enable(true);
     // xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, NULL);
@@ -288,7 +251,7 @@ void set_input_midi_channel(uint8_t ch_index)
 }
 
 
-static void midi_task(void *arg)
+static void midi_task(void *arg) // TODO: move the detail to other c file
 {
     int rc = ESP_OK;
     // The MIDI interface always creates input and output port/jack descriptors
@@ -347,15 +310,19 @@ static void audio_task(void *param)
     {
         // vTaskDelay(1);
         if (xSemaphoreTake(binary_sem, portMAX_DELAY)) {
+            if (g_audio_streaming_enabled) {
 #if CFG_TUD_AUDIO_ENABLE_ENCODING
-            // Write I2S buffer into FIFO
-            for (uint8_t cnt = 0; cnt < CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO; cnt++)
-            {
-                tud_audio_write_support_ff(cnt, i2s_dummy_buffer[cnt], AUDIO_SAMPLE_RATE / 1000 * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX * CFG_TUD_AUDIO_FUNC_1_CHANNEL_PER_FIFO_TX);
-            }
 #else
-            tud_audio_write(i2s_dummy_buffer, AUDIO_SAMPLE_RATE / 1000 * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX * CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX);
+                int sample_num = AUDIO_SAMPLE_RATE / 1000;
+                int rc = read_mic_data(i2s_dummy_buffer, NULL, sample_num, false);
+                if (rc != ESP_OK) {
+                    ESP_LOGE(TAG, "read_mic_data fail! rc=%d", rc);
+                } else {
+                    // Write the audio data to the USB audio interface
+                    tud_audio_write(i2s_dummy_buffer, sample_num * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX);
+                }
 #endif
+            }
         }
 
     }
@@ -652,6 +619,28 @@ bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const 
     return true;
 }
 
+bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_request)
+{
+    uint8_t itf = TU_U16_LOW(p_request->wIndex);
+    uint8_t alt = TU_U16_LOW(p_request->wValue);
+
+    if (itf == 1) {
+        if (alt == 0) { // 0 means no audio streaming
+            mic_enable(false);
+            g_audio_streaming_enabled = false;
+            ESP_LOGI(TAG, "Audio streaming disabled");
+        } else {
+            mic_reconfig_sample_rate(AUDIO_SAMPLE_RATE);
+            mic_enable(true);
+            g_audio_streaming_enabled = true;
+            ESP_LOGI(TAG, "Audio streaming enabled, alt setting %d", alt);
+        }
+    } else {
+        ESP_LOGE(TAG, "Unsupported audio interface %d", itf);
+        return false; // Unsupported interface
+    }
+    return true;
+}
 ///--------------------------------------------------------------------+
 // BLINKING TASK
 //--------------------------------------------------------------------+

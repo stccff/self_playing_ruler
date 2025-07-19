@@ -11,7 +11,7 @@ if __name__ == '__main__':
     # print(sd.query_devices())
 
     fs = 48000  		# Sample rate
-    duration = 50e-3   # Duration of recording
+    duration = 2000e-3   # Duration of recording
 
 
    # check microphone device name
@@ -32,7 +32,7 @@ if __name__ == '__main__':
     # device_index = 97  # 你的 MicNode_1_Ch 的编号
 
     try:
-        myrecording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16', device=device)
+        myrecording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='float32', device=device)
     except Exception as e:
         print("录音失败:", e)
         exit(1)

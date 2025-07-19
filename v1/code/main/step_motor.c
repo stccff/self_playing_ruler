@@ -449,6 +449,11 @@ static int create_freq_table(void)
         return rc;
     }
 
+    // enable mic
+    mic_reconfig_sample_rate(8000);
+    mic_enable(true);
+
+
     // int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
     // int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN + 1;
     // g_pf_table_num = step_mini_num + step_normal_num;
@@ -487,7 +492,8 @@ static int create_freq_table(void)
             free(g_pf_table);
             g_pf_table = NULL;
             g_pf_table_num = 0;
-            return ESP_FAIL;
+            rc = ESP_FAIL;
+            goto err;
         }
         g_pf_table[i].pos = pos;
         rc = measure_frequency(len, &g_pf_table[i].freq);
@@ -496,11 +502,12 @@ static int create_freq_table(void)
             free(g_pf_table);
             g_pf_table = NULL;
             g_pf_table_num = 0;
-            return rc;
+            goto err;
         }
     }
 
-    // print
+err:
+    mic_enable(false); // disable mic channel
 
     return ESP_OK;
 }

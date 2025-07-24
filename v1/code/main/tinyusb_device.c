@@ -52,6 +52,12 @@ static uint32_t blink_interval_ms = BLINK_NOT_MOUNTED;
 
 static bool g_audio_streaming_enabled = false;
 
+static uint8_t g_input_channel = 0xff; // 0xff means all channels are active, 0~15 means channel 1~16
+static bool g_midi_velocity_enabled = false; // MIDI velocity enable/disable flag
+static int8_t g_midi_velocity = 127; // MIDI velocity value, 0~127
+static float g_gain_table[128];
+#define MIN_DB    (-35.0f)
+
 
 // Audio controls
 // Current states
@@ -80,6 +86,7 @@ static void led_blinking_task(void *param);
 static void usb_device_task(void *param);
 static void audio_task(void *param);
 static void midi_task(void *param);
+static void build_gain_table(float gain_table[128]);
 
 static void usb_phy_init(void)
 {
@@ -173,6 +180,9 @@ int tinyusb_device_init(void)
     sampleFreqRng.subrange[0].bMax = AUDIO_SAMPLE_RATE;
     sampleFreqRng.subrange[0].bRes = 0;
 
+    // Initialize audio controls
+    build_gain_table(g_gain_table);
+
     // tud_sof_cb_enable(true);
     // xTaskCreate(led_blinking_task, "blinky", BLINKY_STACK_SIZE, NULL, 1, NULL);
     xTaskCreate(usb_device_task, "usbd", USBD_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, NULL);
@@ -229,14 +239,13 @@ void tud_resume_cb(void)
 //--------------------------------------------------------------------+
 // MIDI Task
 //--------------------------------------------------------------------+
-uint8_t g_input_channel = 0xff; // 0xff means all channels are active, 0~15 means channel 1~16
 
 /**
  * @brief Set the input active midi channel
  *
  * @param ch_index 0,1~16 (0 means all channels are active)
  */
-void set_input_midi_channel(uint8_t ch_index)
+void midi_set_input_channel(uint8_t ch_index)
 {
     if (ch_index > 16) {
         ESP_LOGE(TAG, "midi channel %d is invalid", ch_index);
@@ -248,6 +257,12 @@ void set_input_midi_channel(uint8_t ch_index)
     } else {
         ESP_LOGI(TAG, "set midi channel %d active", ch_index);
     }
+}
+
+void midi_enable_volecity(bool enable)
+{
+    g_midi_velocity_enabled = enable;
+    ESP_LOGI(TAG, "MIDI velocity en_flag=%d", enable);
 }
 
 
@@ -278,6 +293,7 @@ static void midi_task(void *arg) // TODO: move the detail to other c file
                 if (code_index == 0x9 && data2 != 0) {
                     ESP_LOGI(TAG, "Note On: channel=%d note=%d velocity=%d", channel + 1, data1, data2);
                     if (g_input_channel == 0xff || channel == g_input_channel) {
+                        g_midi_velocity = data2; // Store the velocity for later use
                         if (data2 > 0) {
                             rc = play_single_note_by_midi(data1);
                             if (rc != ESP_OK) {
@@ -300,6 +316,40 @@ static void midi_task(void *arg) // TODO: move the detail to other c file
 //--------------------------------------------------------------------+
 // AUDIO Task
 //--------------------------------------------------------------------+
+static void build_gain_table(float gain_table[128]) {
+    for (int v = 0; v < 128; ++v) {
+        if (v == 0) {
+            gain_table[v] = 0.0f;
+        } else {
+            float db = MIN_DB * (1.0f - (float)v / 127.0f);
+            gain_table[v] = powf(10.0f, db / 20.0f);
+        }
+    }
+}
+
+static float velocity_to_gain(int8_t velocity)
+{
+    if (velocity < 0) {
+        ESP_LOGE(TAG, "Invalid MIDI velocity: %d", velocity);
+        return 1.0f; // Default gain
+    }
+    return g_gain_table[velocity];
+}
+
+static void implement_midi_velocity(uint8_t *i2s_buff, int sample_num, int byte_pre_sample, int8_t velocity)
+{
+    float gain = velocity_to_gain(g_midi_velocity);
+    for (int i = 0; i < sample_num; i++) {
+        int tmp = (i2s_buff[i*byte_pre_sample+2] << 16) |
+                    (i2s_buff[i*byte_pre_sample+1] << 8) |
+                    i2s_buff[i*byte_pre_sample];
+        tmp = (tmp << 8) >> 8; // add sign extension
+        tmp = (int)(tmp * gain); // Apply gain
+        i2s_buff[i*byte_pre_sample+2] = (tmp >> 16) & 0xFF;
+        i2s_buff[i*byte_pre_sample+1] = (tmp >> 8) & 0xFF;
+        i2s_buff[i*byte_pre_sample] = tmp & 0xFF;
+    }
+}
 
 static void audio_task(void *param)
 {
@@ -318,6 +368,10 @@ static void audio_task(void *param)
                 if (rc != ESP_OK) {
                     ESP_LOGE(TAG, "read_mic_data fail! rc=%d", rc);
                 } else {
+                    if (g_midi_velocity_enabled) {
+                        // If MIDI velocity is enabled, adjust the volume based on the MIDI velocity
+                        implement_midi_velocity(i2s_dummy_buffer, sample_num, CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX, g_midi_velocity);
+                    }
                     // Write the audio data to the USB audio interface
                     tud_audio_write(i2s_dummy_buffer, sample_num * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX);
                 }

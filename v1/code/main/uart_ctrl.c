@@ -70,6 +70,7 @@ static int do_cmd_testbdc(char *data);
 static int do_cmd_servo(char *data);
 static int do_cmd_servo_mid(char *data);
 static int do_cmd_stepper_motor(char *data);
+static int do_cmd_enable_midi_velocity(char *data);
 
 
 /* ***************************************************************************************************************** */
@@ -89,6 +90,7 @@ cmd_table_t g_cmd_table[] = {
     {"servoangle", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
     {"servomid", do_cmd_servo_mid, "<index> <angle>", "set servo motor midle angle"},
     {"stepper", do_cmd_stepper_motor, "<step>", "set stepper motor positon"},
+    {"midivelocity", do_cmd_enable_midi_velocity, "<enable>", "enable or disable midi velocity, 0: disable, 1: enable"},
 
     /* legacy prototype compatible commands */
     {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
@@ -194,7 +196,7 @@ static int do_cmd_set_midi_chan(char *data)
         ESP_LOGE(TAG, "Invalid set channel command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
-    set_input_midi_channel(ch);
+    midi_set_input_channel(ch);
     return ESP_OK;
 }
 
@@ -285,6 +287,20 @@ static int do_cmd_stepper_motor(char *data)
     h_bridge_set(1, 0);
 
     return stepper_motor_action_by_pos(true, step);
+}
+
+static int do_cmd_enable_midi_velocity(char *data)
+{
+    int velocity = 0;
+    int rc = sscanf(data, "%d\n", &velocity);
+    if (rc != 1) {
+        ESP_LOGE(TAG, "Invalid midi velocity command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    midi_enable_volecity(velocity != 0);
+
+    return ESP_OK;
 }
 
 /**

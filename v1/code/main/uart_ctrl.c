@@ -313,14 +313,6 @@ static int dispatch_uart_cmd(char *command)
 {
     int rc = ESP_OK;
 
-    // check midi status
-    int status = 0; // TODO: replace with actual MIDI status check
-    if (status) {
-        // midi is playing, ignore the command
-        ESP_LOGW(TAG, "MIDI is playing, command ignored: %s", command);
-        return ESP_OK;
-    }
-
     char cmdbuff[CMD_MAX_LEN];
     rc = sscanf(command, "%s", cmdbuff);
     if (rc != 1) {

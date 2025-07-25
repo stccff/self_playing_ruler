@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "play.h"
 #include "servo_motor.h"
@@ -36,6 +37,7 @@ gptimer_handle_t g_strum_timer = NULL;
 gptimer_handle_t g_emagnet_off_timer = NULL;
 bool g_is_emagnet_off_timer_started = false;
 int64_t alarm_time = 0; // for debug
+SemaphoreHandle_t g_mutex = NULL;
 /* ***************************************************************************************************************** */
 /*                                              function prototype                                                   */
 /* ***************************************************************************************************************** */
@@ -70,6 +72,10 @@ static bool IRAM_ATTR timer_idel_release_cb(gptimer_handle_t timer, const gptime
 
 void play_init(void)
 {
+    /* for protect */
+    g_mutex = xSemaphoreCreateMutex();
+    ESP_ERROR_CHECK(g_mutex == NULL);
+
     /* timer for strum */
     ESP_LOGI(TAG, "Create stepper motor timer handle");
     gptimer_config_t strum_timer_config = {
@@ -125,10 +131,17 @@ int play_single_note_by_pos(int pos)
 {
     int rc = ESP_OK;
 
+    rc = xSemaphoreTake(g_mutex, 0);
+    if (rc != pdTRUE) {
+        ESP_LOGE(TAG, "play function should not be called reentrantly");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     /* estimate stepper motor action time */
     int ruler_estimated_time = calc_stepper_motor_time_by_pos(pos);
     if (ruler_estimated_time < 0) {
-        return ruler_estimated_time;
+        rc = ruler_estimated_time;
+        goto err;
     }
     ESP_LOGD(TAG, "stepper motor action estimated time: %d ms", ruler_estimated_time);
 #ifdef CONFIG_HW_B_VER_1_0
@@ -142,7 +155,7 @@ int play_single_note_by_pos(int pos)
         h_bridge_set(1, 0);
     }
     start_emagnet_off_timer(E_MAGNET_FINAL_RELEASE_DELAY);
-    vTaskDelay(pdMS_TO_TICKS(20)); // Waiting for demagnetization, TODO: 20 is ok? or 30?
+    vTaskDelay(pdMS_TO_TICKS(20)); // Waiting for demagnetization, 20 is ok? or 30?
 #elif defined(CONFIG_HW_B_VER_1_0)
     if (ruler_estimated_time != 0) {
         h_bridge_set(1, 1); // release
@@ -160,7 +173,7 @@ int play_single_note_by_pos(int pos)
         rc = stepper_motor_action_by_pos(true, pos);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "play fail, pos: %d", pos);
-            return rc;
+            goto err;
         }
 
         // after ruler move, press the ruler
@@ -192,7 +205,7 @@ int play_single_note_by_pos(int pos)
         rc = stepper_motor_action_by_pos(true, pos);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "play fail, pos: %d", pos);
-            return rc;
+            goto err;
         }
 
         // after ruler move, press the ruler
@@ -210,6 +223,8 @@ int play_single_note_by_pos(int pos)
         ESP_LOGD(TAG, "timer alarm time in: %llu ms, timer cost: %llu ms", alarm_time / 1000, (alarm_time - start_time) / 1000);
     }
 
+err:
+    ESP_ERROR_CHECK(xSemaphoreGive(g_mutex) == pdFALSE);
     return rc;
 }
 

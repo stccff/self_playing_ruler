@@ -511,8 +511,14 @@ err:
 
     return ESP_OK;
 }
-
-int freq_table_init(bool force_init) // TODO: need check stepper motor controler's mode, ruler len, before use nvs F-P table
+/**
+ * @brief Initialize the frequency table
+ *
+ * @param force_init if true, it will create a new table and write to nvs.
+ *                   If false, it will read out the exists from nvs. if not exist, it will create a new table.
+ * @return int
+ */
+int freq_table_init(bool force_init) // TODO: Need to check if the f-p table is legacy before using it.
 {
     int rc = ESP_OK;
 

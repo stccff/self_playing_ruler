@@ -4,20 +4,19 @@
 
 #include <stdint.h>
 
-extern int freq_table_init(bool force_init);
-extern int freq_table_clear(void);
-extern int freq_table_show(void);
+#define MODE 1 // 0: full step, 1: half step, 2: 1/4 step, 3: 1/8 step, 4: 1/16 step, 5: 1/32 step
+#define FULL_STEP_LEN 0.15 // mm
+#define MAX_FULL_STEP 320
+#define STEP_LEN (FULL_STEP_LEN / (1 << MODE))
+#define MAX_STEP (MAX_FULL_STEP * (1 << MODE))
+#define SCREW_BACKLASH (2 * (1 << MODE)) // step
+
 
 extern void stepper_motor_init(void);
 
 extern int stepper_motor_action_by_pos(bool is_sync, int pos);
-extern int stepper_motor_action_by_freq(bool is_sync, double freq);
-extern int stepper_motor_action_by_len(bool is_sync, double len);
 extern void stepper_motor_async_wait_done(void);
 
 extern int calc_stepper_motor_time_by_pos(int pos);
-
-extern int convert_freq_to_pos(double target_freq);
-extern int convert_len_to_pos(double len);
 
 #endif // __STEP_MOTOR_H

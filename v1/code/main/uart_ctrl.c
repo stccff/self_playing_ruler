@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "servo_motor.h"
 #include "step_motor.h"
+#include "ruler.h"
 #include "uart_ctrl.h"
 #include "math.h"
 #include "note_decode.h"

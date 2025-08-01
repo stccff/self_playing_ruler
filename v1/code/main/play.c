@@ -2,12 +2,14 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
-#include "play.h"
 #include "servo_motor.h"
 #include "step_motor.h"
+#include "ruler.h"
 #include "h_bridge.h"
 #include "note_decode.h"
 #include "driver/gptimer.h"
+#include "play.h"
+
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -108,7 +110,7 @@ void play_init(void)
     };
     ESP_ERROR_CHECK(gptimer_register_event_callbacks(g_emagnet_off_timer, &off_strum_cbs, NULL));
 
-    ESP_LOGI(TAG, "Enable emagnet off timer");
+    ESP_LOGI(TAG, "Enable emagnet auto off timer");
     ESP_ERROR_CHECK(gptimer_enable(g_emagnet_off_timer));
 }
 
@@ -144,27 +146,14 @@ int play_single_note_by_pos(int pos)
         goto err;
     }
     ESP_LOGD(TAG, "stepper motor action estimated time: %d ms", ruler_estimated_time);
-#ifdef CONFIG_HW_B_VER_1_0
-    ruler_estimated_time += BDC_PRESS_DELAY;
-#endif
 
     /* release the ruler */
-#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
     if (ruler_estimated_time != 0) { // if zero, no need to release
         h_bridge_set(0, 0);
         h_bridge_set(1, 0);
     }
     start_emagnet_off_timer(E_MAGNET_FINAL_RELEASE_DELAY);
     vTaskDelay(pdMS_TO_TICKS(20)); // Waiting for demagnetization, 20 is ok? or 30?
-#elif defined(CONFIG_HW_B_VER_1_0)
-    if (ruler_estimated_time != 0) {
-        h_bridge_set(1, 1); // release
-        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
-        h_bridge_set(1, 0); // off
-    } else {
-        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
-    }
-#endif
 
     /* move stepper motor and strum */
     if (ruler_estimated_time <= SERVO_STRUM_PREPARE_TIME) { // stepper motor cost < servo prepare in 6v, immidiately strum
@@ -177,14 +166,8 @@ int play_single_note_by_pos(int pos)
         }
 
         // after ruler move, press the ruler
-#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
         h_bridge_set(0, POLARITY_POSITIVE);
         h_bridge_set(1, POLARITY_NEGATIVE);
-#elif defined(CONFIG_HW_B_VER_1_0)
-        h_bridge_set(1, -1); // press
-        vTaskDelay(pdMS_TO_TICKS(BDC_PRESS_DELAY));
-        h_bridge_set(1, 0); // off
-#endif
 
         // strum: now touch the ruler(triggered by action(3))
 
@@ -209,14 +192,8 @@ int play_single_note_by_pos(int pos)
         }
 
         // after ruler move, press the ruler
-#if defined(CONFIG_HW_A_VER_1_0) || defined(CONFIG_HW_A_VER_1_1)
         h_bridge_set(0, POLARITY_POSITIVE);
         h_bridge_set(1, POLARITY_NEGATIVE);
-#elif defined(CONFIG_HW_B_VER_1_0)
-        h_bridge_set(1, -1); // press
-        vTaskDelay(pdMS_TO_TICKS(BDC_PRESS_DELAY));
-        h_bridge_set(1, 0); // off
-#endif
 
         vTaskDelay(pdMS_TO_TICKS(SERVO_STRUM_START_2_RELEASE_TIME - SERVO_STRUM_PREPARE_TIME));
 

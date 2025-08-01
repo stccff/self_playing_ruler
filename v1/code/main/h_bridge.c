@@ -46,30 +46,6 @@ void h_bridge_init(void)
         h_bridge_set(i, 0); // turn off all h-bridges
     }
 
-#ifdef CONFIG_HW_B_VER_1_0 // TODO: abstract this to bdc.c
-    h_bridge_set(1, -1); // press
-    vTaskDelay(pdMS_TO_TICKS(100));
-    h_bridge_set(1, 0); // off
-
-    for (int i = 0; i < 2; i++) {
-        h_bridge_set(1, 1); // release
-        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
-        h_bridge_set(1, 0); // off
-    }
-
-    for (int i = 0; i < 3; i++) {
-        h_bridge_set(1, -1); // press
-        vTaskDelay(pdMS_TO_TICKS(BDC_PRESS_DELAY));
-        h_bridge_set(1, 0); // off
-
-        vTaskDelay(pdMS_TO_TICKS(100));
-
-        h_bridge_set(1, 1); // release
-        vTaskDelay(pdMS_TO_TICKS(BDC_RELESE_DELAY));
-        h_bridge_set(1, 0); // off
-    }
-#endif // CONFIG_HW_B_VER_1_0
-
     ESP_LOGI(TAG, "H-bridge GPIO initialized");
 }
 

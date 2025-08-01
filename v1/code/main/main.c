@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "servo_motor.h"
 #include "step_motor.h"
+#include "ruler.h"
 #include "uart_ctrl.h"
 #include "digital_mic.h"
 #include "h_bridge.h"
@@ -58,6 +59,7 @@ void app_main(void)
     init_nvs();
     servo_motor_init();
     stepper_motor_init();
+    ruler_init();
     i2s_driver_init();
     play_init();
     uart_init();

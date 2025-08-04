@@ -26,7 +26,7 @@
 
 #define ECHO_UART_PORT_NUM      (0)
 #define ECHO_UART_BAUD_RATE     (115200)
-#define ECHO_TASK_STACK_SIZE    (1024 * 10)
+#define ECHO_TASK_STACK_SIZE    (4096)
 
 
 static const char *TAG = "UART_CTRL";
@@ -67,18 +67,22 @@ static int do_cmd_play_by_len(char *data);
 static int do_cmd_play_by_pos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
-static int do_cmd_testbdc(char *data);
 static int do_cmd_servo(char *data);
 static int do_cmd_servo_mid(char *data);
 static int do_cmd_stepper_motor(char *data);
 static int do_cmd_enable_midi_velocity(char *data);
-
+static int do_cmd_set_use_formula(char *data);
+static int do_cmd_recalculate_params(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
 /* ***************************************************************************************************************** */
 cmd_table_t g_cmd_table[] = {
     {"help", do_cmd_help, "", ""},
+    /* legacy prototype compatible commands */
+    {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
+    {"p", do_cmd_play_by_note, "<note>", "play the note, eg.'#2.' means high re sharp"},
+    /* latest */
     {"ftinit", do_cmd_init_freq_table, "", "init frequency table"},
     {"ftclear", do_cmd_clear_freq_table, "", "clear frequency table"},
     {"ftshow", do_cmd_freq_table_show, "", "print frequency table"},
@@ -87,15 +91,12 @@ cmd_table_t g_cmd_table[] = {
     {"playpos", do_cmd_play_by_pos, "<pos>", "ruler play by stepper motor absolute position"},
     {"magnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
     {"magnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
-    {"bdc", do_cmd_testbdc, "<polary> <delay_ms>", "run brushed DC motor"},
     {"servoangle", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
     {"servomid", do_cmd_servo_mid, "<index> <angle>", "set servo motor midle angle"},
     {"stepper", do_cmd_stepper_motor, "<step>", "set stepper motor positon"},
     {"midivelocity", do_cmd_enable_midi_velocity, "<enable>", "enable or disable midi velocity, 0: disable, 1: enable"},
-
-    /* legacy prototype compatible commands */
-    {"set", do_cmd_set, "<base> <scale>", "base: 'do' in midi, scale: musical mode"},
-    {"p", do_cmd_play_by_note, "<note>", "play the note, eg.'#2.' means high re sharp"},
+    {"useformula", do_cmd_set_use_formula, "<enable>", "use formula to calculate pos by freq, 0: use table, 1: use formula"},
+    {"recalcparam", do_cmd_recalculate_params, "", "recalculate formula's parameters by current frequency table"},
 };
 
 static int do_cmd_help(char *data)
@@ -234,23 +235,6 @@ static int do_cmd_testmagnet2(char *data)
     return ESP_OK;
 }
 
-static int do_cmd_testbdc(char *data)
-{
-    int polary = 0;
-    int delay = 0;
-    int rc = sscanf(data, "%d %d\n", &polary, &delay);
-    if (rc != 2) {
-        ESP_LOGE(TAG, "Invalid test bdc command param: %s", data);
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    h_bridge_set(1, polary);
-    vTaskDelay(pdMS_TO_TICKS(delay));
-    h_bridge_set(1, 0);
-
-    return ESP_OK;
-}
-
 static int do_cmd_servo(char *data)
 {
     int index = 0;
@@ -303,6 +287,37 @@ static int do_cmd_enable_midi_velocity(char *data)
 
     return ESP_OK;
 }
+
+static int do_cmd_set_use_formula(char *data)
+{
+    int enable = 0;
+    int rc = sscanf(data, "%d\n", &enable);
+    if (rc != 1) {
+        ESP_LOGE(TAG, "Invalid useformula command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    freq_table_use_formula(enable != 0);
+    if (enable != 0) {
+        ESP_LOGI(TAG, "Using formula to calculate pos by freq");
+    } else {
+        ESP_LOGI(TAG, "Using table to calculate pos by freq");
+    }
+
+    return ESP_OK;
+}
+
+static int do_cmd_recalculate_params(char *data)
+{
+    int rc = recalculate_params();
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to recalculate k and b");
+        return rc;
+    }
+    ESP_LOGI(TAG, "Recalculate parameters success");
+    return ESP_OK;
+}
+
 
 /**
  * @brief

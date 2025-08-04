@@ -6,6 +6,7 @@ endif()
 
 idf_component_register(SRCS "h_bridge.c" "tinyusb_device.c" "digital_mic.c" "play.c" "signal_fft.c" "note_decode.c"
                             "uart_ctrl.c" "step_motor.c" "ruler.c" "servo_motor.c" "main.c" "stepper_motor_encoder.c"
+                            "nls.c"
                        PRIV_REQUIRES usb
                        REQUIRES driver nvs_flash
                        PRIV_INCLUDE_DIRS "${IDF_PATH_UNIX}/components/esp_driver_i2s"

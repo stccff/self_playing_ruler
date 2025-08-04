@@ -17,6 +17,7 @@
 #include "digital_mic.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "nls.h"
 #include "ruler.h"
 
 /* ***************************************************************************************************************** */
@@ -40,28 +41,47 @@
 
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
-#define FREQ_TABLE_FFT_SIZE 4096
-#define FREQ_TABLE_FFT_DELAY 1000 // ms
+#define FREQ_TABLE_FFT_SIZE 2048
+#define FREQ_TABLE_FFT_DELAY 500 // ms
 
 /* ***************************************************************************************************************** */
 /*                                                 struct define                                                     */
 /* ***************************************************************************************************************** */
-struct PosFreqTlb {
+struct freq_table {
     int pos;
     float freq;
+};
+struct PosFreqTlb {
+    struct freq_table table[RULLER_FREQ_SAMPLE_NUM];
+    double k;
+    double a;
+    double b;
 };
 /* ***************************************************************************************************************** */
 /*                                                global variable                                                    */
 /* ***************************************************************************************************************** */
-static const char *TAG = "ruler";
-struct PosFreqTlb *g_pf_table = NULL;
-size_t g_pf_table_num = 0;
+static const char *TAG = "RULER";
+// struct PosFreqTlb *g_pf_table = NULL;
+// size_t g_pf_table_num = 0;
+static struct PosFreqTlb *g_pf_table = NULL;
+bool g_is_formula = false; // use formula to calculate pos by freq, or use table
 /* ***************************************************************************************************************** */
 /*                                           function prototype                                                      */
 /* ***************************************************************************************************************** */
-static float get_freq_by_formula(float len)
+
+/* formula f=k/(L^2)+b, L=(k/(f-b))^(1/2) */
+static float calculate_freq_by_len(float len)
 {
     return (double)SLOPE_K / pow(len, 2) + INTERCEPT_B;
+}
+
+/* formula f=k/(pos + a)^2 + b, pos = sqrt(k/(f-b)) - a */
+static float calculate_pos_by_freq(float freq)
+{
+    double k = g_pf_table->k;
+    double a = g_pf_table->a;
+    double b = g_pf_table->b;
+    return sqrt(k / (freq - b)) - a;
 }
 
 /**
@@ -72,44 +92,50 @@ static float get_freq_by_formula(float len)
  */
 int convert_freq_to_pos(double target_freq)
 {
-    // int table_num = sizeof(g_pf_table) / sizeof(g_pf_table[0]);
-    int table_num = g_pf_table_num;
-    if (g_pf_table == NULL || table_num == 0) {
-        ESP_LOGE(TAG, "g_pf_table=%p, table_num=%d", g_pf_table, table_num);
+    if (g_pf_table == NULL) {
+        ESP_LOGE(TAG, "frequency not be initialized!");
         return -1;
     }
+
+    struct freq_table *table = g_pf_table->table;
+    int num = RULLER_FREQ_SAMPLE_NUM;
 
     // the boundary check
-    if (target_freq > g_pf_table[0].freq) {
+    if (target_freq > table[0].freq) {
         ESP_LOGE(TAG, "freq:%lf is outof table", target_freq);
         return -1;
     }
-    if (target_freq < g_pf_table[table_num-1].freq) {
+    if (target_freq < table[num-1].freq) {
         ESP_LOGE(TAG, "freq:%lf is outof table", target_freq);
         return -1;
     }
 
-    // linear interpolation
-    for (int i = 0; i < table_num - 1; i++) {
-        // check the range
-        if (g_pf_table[i].freq >= target_freq && target_freq >= g_pf_table[i+1].freq) {
-            float f1 = g_pf_table[i].freq;
-            float p1 = g_pf_table[i].pos;
-            float f2 = g_pf_table[i+1].freq;
-            float p2 = g_pf_table[i+1].pos;
+    if (g_is_formula) {
+        return calculate_pos_by_freq(target_freq);
+    } else {
+        // linear interpolation
+        for (int i = 0; i < num - 1; i++) {
+            // check the range
+            if (table[i].freq >= target_freq && target_freq >= table[i+1].freq) {
+                float f1 = table[i].freq;
+                float p1 = table[i].pos;
+                float f2 = table[i+1].freq;
+                float p2 = table[i+1].pos;
 
-            // do linear interpolation
-            float t = (target_freq - f1) / (f2 - f1);
-            float interpolated_pos = p1 + t * (p2 - p1);
-            return round(interpolated_pos);
+                // do linear interpolation
+                float t = (target_freq - f1) / (f2 - f1);
+                float interpolated_pos = p1 + t * (p2 - p1);
+                return round(interpolated_pos);
+            }
         }
     }
 
     return -1.0f; // 理论上不会执行到这里
 }
 
+
 /**
- * @brief convert the length(mm) to absolute step
+ * @brief convert the length(mm) to absolute step. (not accurate)
  *
  * @param len
  * @return int
@@ -133,36 +159,36 @@ static float convert_pos_to_len(int pos)
     return (float)RULER_LEN_MIN + (RULER_LEN_MAX - RULER_LEN_MIN) * pos / MAX_STEP;
 }
 
-int ruler_action_by_len(bool is_sync, double len)
-{
-    int rc = ESP_OK;
-    int pos = convert_len_to_pos(len);
-    if (pos < 0) {
-        ESP_LOGE(TAG, "convert_len_to_pos fail! len=%f", len);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    rc = stepper_motor_action_by_pos(is_sync, pos);
-    return rc;
-}
+// int ruler_action_by_len(bool is_sync, double len)
+// {
+//     int rc = ESP_OK;
+//     int pos = convert_len_to_pos(len);
+//     if (pos < 0) {
+//         ESP_LOGE(TAG, "convert_len_to_pos fail! len=%f", len);
+//         return ESP_ERR_INVALID_RESPONSE;
+//     }
+//     rc = stepper_motor_action_by_pos(is_sync, pos);
+//     return rc;
+// }
 
-/**
- * @brief stepper motor act as the input freq
- *
- * @param freq
- * @return int
- */
-int ruler_action_by_freq(bool is_sync, double freq)
-{
-    int rc = ESP_OK;
-    int pos = convert_freq_to_pos(freq);
-    if (pos < 0) {
-        ESP_LOGE(TAG, "convert_freq_to_pos fail! freq=%f", freq);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    rc = stepper_motor_action_by_pos(is_sync, pos);
-    ESP_LOGI(TAG, "freq = %f, pos = %d, len = %f", freq, pos, convert_pos_to_len(pos));
-    return rc;
-}
+// /**
+//  * @brief stepper motor act as the input freq
+//  *
+//  * @param freq
+//  * @return int
+//  */
+// int ruler_action_by_freq(bool is_sync, double freq)
+// {
+//     int rc = ESP_OK;
+//     int pos = convert_freq_to_pos(freq);
+//     if (pos < 0) {
+//         ESP_LOGE(TAG, "convert_freq_to_pos fail! freq=%f", freq);
+//         return ESP_ERR_INVALID_RESPONSE;
+//     }
+//     rc = stepper_motor_action_by_pos(is_sync, pos);
+//     ESP_LOGI(TAG, "freq = %f, pos = %d, len = %f", freq, pos, convert_pos_to_len(pos));
+//     return rc;
+// }
 
 static int measure_frequency(float len, float *freq)
 {
@@ -173,7 +199,7 @@ static int measure_frequency(float len, float *freq)
         ESP_LOGE(TAG, "measure play len:%f fail", len);
         return rc;
     }
-    float target = get_freq_by_formula(len);
+    float target = calculate_freq_by_len(len);
     rc = get_sound_frequency(target*(1-RULLER_FREQ_SAMPLE_TOLERANCE), target*(1+RULLER_FREQ_SAMPLE_TOLERANCE), freq, true);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "measure get sound frequency fail, rc = %d", rc);
@@ -185,15 +211,35 @@ static int measure_frequency(float len, float *freq)
     return rc;
 }
 
+static void calculate_parameters(void)
+{
+    double x[RULLER_FREQ_SAMPLE_NUM];
+    double y[RULLER_FREQ_SAMPLE_NUM];
+    for (int i = 0; i < RULLER_FREQ_SAMPLE_NUM; i++) {
+        x[i] = g_pf_table->table[i].pos;
+        y[i] = g_pf_table->table[i].freq;
+    }
+
+    // 初始参数估计 (k, a, b)
+    double p0[3] = {1.0, 0.0, 0.0};
+
+    // 执行拟合
+    lm_fit(RULLER_FREQ_SAMPLE_NUM, x, y, p0, 100, 1e-6);
+
+    g_pf_table->k = p0[0];
+    g_pf_table->a = p0[1];
+    g_pf_table->b = p0[2];
+
+    ESP_LOGI(TAG, "fiting result: k=%f, a=%f, b=%f", p0[0], p0[1], p0[2]);
+}
+
 static int create_freq_table(void)
 {
     int rc = ESP_OK;
 
     rc = sound_fft_init(FREQ_TABLE_FFT_SIZE);
     if (rc != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize sound FFT with error: %d", rc);
-        g_pf_table = NULL;
-        g_pf_table_num = 0;
+        ESP_LOGE(TAG, "create frequency table fail with fft init error: %d", rc);
         return rc;
     }
 
@@ -201,64 +247,61 @@ static int create_freq_table(void)
     mic_reconfig_sample_rate(8000);
     mic_enable(true);
 
-
-    // int step_mini_num = ((int)RULLER_FREQ_STEP_CHANGE_LEN - (int)RULER_LEN_MUSIC_MIN) * 2;
-    // int step_normal_num = (int)RULER_LEN_MUSIC_MAX - (int)RULLER_FREQ_STEP_CHANGE_LEN + 1;
-    // g_pf_table_num = step_mini_num + step_normal_num;
-    g_pf_table_num = RULLER_FREQ_SAMPLE_NUM;
-
     if (g_pf_table != NULL) {
         free(g_pf_table);
         g_pf_table = NULL;
     }
-    g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb) * g_pf_table_num);
+    g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb));
     if (g_pf_table == NULL) {
         ESP_LOGE(TAG, "Failed to allocate memory for frequency table");
-        g_pf_table_num = 0;
         return ESP_ERR_NO_MEM;
     }
+    struct freq_table *table = g_pf_table->table;
 
     // remove backlash error
     rc = play_single_note_by_pos(0);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "remove backlash, set pos error");
-        return rc;
+        goto err;
     }
     vTaskDelay(pdMS_TO_TICKS(100));
 
+    /* make step len by using arithmetic progression */
     double step_len_start = FULL_STEP_LEN * 2;
     double Sn_1 = RULER_LEN_MUSIC_MAX - RULER_LEN_MUSIC_MIN;
-    size_t n = g_pf_table_num;
+    size_t n = RULLER_FREQ_SAMPLE_NUM;
     float a1 = step_len_start;
     double d = (Sn_1 - (n-1) * a1) * 2 / ((n-1) * (n-2));
     float x1 = RULER_LEN_MUSIC_MIN;
-    for (int i = 0; i < g_pf_table_num; i++) { // i --> n-1
+    for (int i = 0; i < RULLER_FREQ_SAMPLE_NUM; i++) { // i --> n-1
         double len = x1 + i * a1 + i * (i - 1) * d / 2;
         int pos = convert_len_to_pos(len);
         if (pos < 0) {
             ESP_LOGE(TAG, "convert_len_to_pos fail! length: %f", len);
-            free(g_pf_table);
-            g_pf_table = NULL;
-            g_pf_table_num = 0;
             rc = ESP_FAIL;
             goto err;
         }
-        g_pf_table[i].pos = pos;
-        rc = measure_frequency(len, &g_pf_table[i].freq);
+        table[i].pos = pos;
+        rc = measure_frequency(len, &table[i].freq);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
-            free(g_pf_table);
-            g_pf_table = NULL;
-            g_pf_table_num = 0;
             goto err;
         }
     }
 
+    calculate_parameters();
+
 err:
+    if (rc != ESP_OK) {
+        free(g_pf_table);
+        g_pf_table = NULL;
+    }
+
     mic_enable(false); // disable mic channel
 
-    return ESP_OK;
+    return rc;
 }
+
 /**
  * @brief Initialize the frequency table
  *
@@ -287,7 +330,7 @@ int freq_table_init(bool force_init) // TODO: Need to check if the f-p table is 
             goto err;
         }
         // Write blob
-        rc = nvs_set_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, g_pf_table_num * sizeof(struct PosFreqTlb));
+        rc = nvs_set_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, sizeof(struct PosFreqTlb));
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Error (%s) writing NVS blob", esp_err_to_name(rc));
             goto err;
@@ -298,7 +341,7 @@ int freq_table_init(bool force_init) // TODO: Need to check if the f-p table is 
             ESP_LOGE(TAG, "Error (%s) committing NVS changes", esp_err_to_name(rc));
             goto err;
         }
-        ESP_LOGI(TAG, "Frequency table created and written to NVS, index num: %d", g_pf_table_num);
+        ESP_LOGI(TAG, "Frequency table created and written to NVS");
     } else {
         // check if the frequency table is exists
         size_t tlb_size = 0;
@@ -318,12 +361,15 @@ int freq_table_init(bool force_init) // TODO: Need to check if the f-p table is 
             if (g_pf_table != NULL) {
                 free(g_pf_table);
                 g_pf_table = NULL;
-                g_pf_table_num = 0;
             }
-            g_pf_table = (struct PosFreqTlb *)malloc(tlb_size);
+            if (tlb_size != sizeof(struct PosFreqTlb)) {
+                ESP_LOGE(TAG, "Frequency table size mismatch, expected: %zu, got: %zu", sizeof(struct PosFreqTlb), tlb_size);
+                rc = ESP_ERR_INVALID_SIZE;
+                goto err;
+            }
+            g_pf_table = (struct PosFreqTlb *)malloc(sizeof(struct PosFreqTlb));
             if (g_pf_table == NULL) {
                 ESP_LOGE(TAG, "Failed to allocate memory for getting frequency table");
-                g_pf_table_num = 0;
                 rc = ESP_ERR_NO_MEM;
                 goto err;
             }
@@ -332,8 +378,7 @@ int freq_table_init(bool force_init) // TODO: Need to check if the f-p table is 
                 ESP_LOGE(TAG, "Error (%s) reading NVS blob", esp_err_to_name(err));
                 goto err;
             }
-            g_pf_table_num = tlb_size / sizeof(struct PosFreqTlb);
-            ESP_LOGI(TAG, "Frequency table loaded from NVS, index num: %d", g_pf_table_num);
+            ESP_LOGI(TAG, "Frequency table loaded from NVS");
         }
     }
 
@@ -343,12 +388,9 @@ err:
             free(g_pf_table);
             g_pf_table = NULL;
         }
-        g_pf_table_num = 0;
     }
     nvs_close(nvs_handle);
     return rc;
-
-    // check tbale valiation(1.is sorted, 2.check freq is accurate)
 }
 
 int freq_table_clear(void)
@@ -387,15 +429,64 @@ int freq_table_show(void)
     } else {
         ESP_LOGI(TAG, "frequency table:");
         printf("Estimated_length\tPosition\tFrequency\n");
-        for (size_t i = 0; i < g_pf_table_num; i++) {
-            printf("%f\t%d\t%f\n", convert_pos_to_len(g_pf_table[i].pos), g_pf_table[i].pos, g_pf_table[i].freq);
+        struct freq_table *table = g_pf_table->table;
+        for (size_t i = 0; i < RULLER_FREQ_SAMPLE_NUM; i++) {
+            printf("%f\t%d\t%f\n", convert_pos_to_len(table[i].pos), table[i].pos, table[i].freq);
         }
     }
+    return rc;
+}
+
+void freq_table_use_formula(bool is_formula)
+{
+    g_is_formula = is_formula;
+    ESP_LOGI(TAG, "Set frequency table formula mode: %s", is_formula ? "formula" : "table");
+}
+
+int recalculate_params(void)
+{
+    int rc = ESP_OK;
+
+    if (g_pf_table == NULL) {
+        ESP_LOGE(TAG, "Frequency table is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Open
+    nvs_handle_t nvs_handle;
+    rc = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) opening NVS handle", esp_err_to_name(rc));
+        return rc;
+    }
+
+    // Recalculate parameters
+    calculate_parameters();
+
+    // Write blob
+    rc = nvs_set_blob(nvs_handle, FREQ_TABLE_KEY, g_pf_table, sizeof(struct PosFreqTlb));
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) writing NVS blob", esp_err_to_name(rc));
+        goto err;
+    }
+    // Commit
+    rc = nvs_commit(nvs_handle);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) committing NVS changes", esp_err_to_name(rc));
+        goto err;
+    }
+err:
+    nvs_close(nvs_handle);
+
     return rc;
 }
 
 void ruler_init(void)
 {
     /* init frequncy table */
-    ESP_ERROR_CHECK(freq_table_init(false));
+    int rc = freq_table_init(false);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize frequency table with error: %d", rc);
+        return;
+    }
 }

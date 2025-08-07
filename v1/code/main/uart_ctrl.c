@@ -73,6 +73,7 @@ static int do_cmd_stepper_motor(char *data);
 static int do_cmd_enable_midi_velocity(char *data);
 static int do_cmd_set_use_formula(char *data);
 static int do_cmd_recalculate_params(char *data);
+static int do_cmd_pitch_test(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
@@ -97,6 +98,7 @@ cmd_table_t g_cmd_table[] = {
     {"midivelocity", do_cmd_enable_midi_velocity, "<enable>", "enable or disable midi velocity, 0: disable, 1: enable"},
     {"useformula", do_cmd_set_use_formula, "<enable>", "use formula to calculate pos by freq, 0: use table, 1: use formula"},
     {"recalcparam", do_cmd_recalculate_params, "", "recalculate formula's parameters by current frequency table"},
+    {"pitchtest", do_cmd_pitch_test, "", "test pitch accuracy"},
 };
 
 static int do_cmd_help(char *data)
@@ -315,6 +317,17 @@ static int do_cmd_recalculate_params(char *data)
         return rc;
     }
     ESP_LOGI(TAG, "Recalculate parameters success");
+    return ESP_OK;
+}
+
+static int do_cmd_pitch_test(char *data)
+{
+    int rc = pitch_accuracy_test();
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to test pitch accuracy");
+        return rc;
+    }
+    ESP_LOGI(TAG, "Pitch accuracy test done");
     return ESP_OK;
 }
 

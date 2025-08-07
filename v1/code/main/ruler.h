@@ -16,5 +16,6 @@ extern int convert_len_to_pos(double len);
 
 extern void freq_table_use_formula(bool is_formula);
 extern int recalculate_params(void);
+extern int pitch_accuracy_test(void);
 
 #endif // __RULER_H

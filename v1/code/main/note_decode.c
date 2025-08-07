@@ -123,6 +123,25 @@ float convert_midi_to_freq(int midi)
     return g_midi_freq[midi];
 }
 
+int find_midi_idx_by_freq(float freq, bool ret_greater)
+{
+    if (freq < g_midi_freq[0] || freq > g_midi_freq[127]) {
+        return -1; // out of range
+    }
+
+    for (int i = 0; i < 128; i++) {
+        if (g_midi_freq[i] >= freq && freq < g_midi_freq[i + 1]) {
+            if (ret_greater) {
+                return i+1;
+            } else {
+                return i;
+            }
+        }
+    }
+    return -1; // not found
+}
+
+
 int set_base_and_scale(int base, int scale)
 {
     if (base < 0 || base > 127) {

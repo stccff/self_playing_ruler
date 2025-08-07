@@ -18,6 +18,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "nls.h"
+#include "note_decode.h"
 #include "ruler.h"
 
 /* ***************************************************************************************************************** */
@@ -42,7 +43,7 @@
 #define STORAGE_NAMESPACE "ruler_player"
 #define FREQ_TABLE_KEY "freq_table"
 #define FREQ_TABLE_FFT_SIZE 2048
-#define FREQ_TABLE_FFT_DELAY 500 // ms
+#define MEASURE_FFT_DELAY 100 // ms
 
 /* ***************************************************************************************************************** */
 /*                                                 struct define                                                     */
@@ -76,12 +77,20 @@ static float calculate_freq_by_len(float len)
 }
 
 /* formula f=k/(pos + a)^2 + b, pos = sqrt(k/(f-b)) - a */
-static float calculate_pos_by_freq(float freq)
+static int calculate_pos_by_freq(float freq)
 {
     double k = g_pf_table->k;
     double a = g_pf_table->a;
     double b = g_pf_table->b;
-    return sqrt(k / (freq - b)) - a;
+    return round(sqrt(k / (freq - b)) - a);
+}
+
+static float calculate_freq_by_pos(int pos)
+{
+    double k = g_pf_table->k;
+    double a = g_pf_table->a;
+    double b = g_pf_table->b;
+    return k / pow(pos + a, 2) + b;
 }
 
 /**
@@ -125,7 +134,7 @@ int convert_freq_to_pos(double target_freq)
                 // do linear interpolation
                 float t = (target_freq - f1) / (f2 - f1);
                 float interpolated_pos = p1 + t * (p2 - p1);
-                return round(interpolated_pos);
+                return (int)round(interpolated_pos);
             }
         }
     }
@@ -190,7 +199,7 @@ static float convert_pos_to_len(int pos)
 //     return rc;
 // }
 
-static int measure_frequency(float len, float *freq)
+static int measure_frequency_by_len(float len, float *freq)
 {
     int rc = ESP_OK;
 
@@ -206,10 +215,12 @@ static int measure_frequency(float len, float *freq)
         return rc;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(FREQ_TABLE_FFT_DELAY));
+    vTaskDelay(pdMS_TO_TICKS(MEASURE_FFT_DELAY));
 
     return rc;
 }
+
+
 
 static void calculate_parameters(void)
 {
@@ -282,7 +293,7 @@ static int create_freq_table(void)
             goto err;
         }
         table[i].pos = pos;
-        rc = measure_frequency(len, &table[i].freq);
+        rc = measure_frequency_by_len(len, &table[i].freq);
         if (rc != ESP_OK) {
             ESP_LOGE(TAG, "Failed to measure frequency for length: %f", len);
             goto err;
@@ -480,6 +491,71 @@ err:
 
     return rc;
 }
+
+
+// static int test_midi_freq() // TODO:
+
+int pitch_accuracy_test(void)
+{
+    int rc = ESP_OK;
+
+    if (g_pf_table == NULL) {
+        ESP_LOGE(TAG, "Frequency table is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    rc = sound_fft_init(FREQ_TABLE_FFT_SIZE);
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "create frequency table fail with fft init error: %d", rc);
+        return rc;
+    }
+
+    // enable mic
+    mic_reconfig_sample_rate(8000);
+    mic_enable(true);
+
+    // get midi range
+    double max_freq = calculate_freq_by_pos(g_pf_table->table[0].pos);
+    double min_freq = calculate_freq_by_pos(g_pf_table->table[RULLER_FREQ_SAMPLE_NUM - 1].pos);
+    int midi_max = find_midi_idx_by_freq(max_freq, false);
+    int midi_min = find_midi_idx_by_freq(min_freq, true);
+
+    if (midi_min < 0 || midi_max < 0) {
+        ESP_LOGE(TAG, "Failed to find MIDI range for frequency: min=%f, max=%f", min_freq, max_freq);
+        goto err;
+
+    }
+
+    printf("midi_num target_freq measured_freq error\n");
+    for (int i = midi_min; i <= midi_max; i++) {
+    // for (int i = midi_max; i >= midi_min; i--) {
+        rc = play_single_note_by_midi(i);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to play MIDI note: %d", i);
+            continue;
+        }
+
+        float target_freq = convert_midi_to_freq(i);
+        float measured_freq;
+        rc = get_sound_frequency(target_freq * (1 - RULLER_FREQ_SAMPLE_TOLERANCE), target_freq * (1 + RULLER_FREQ_SAMPLE_TOLERANCE),
+                                    &measured_freq, false);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get sound frequency for MIDI %d", i);
+            continue;
+        }
+
+        printf("%d %f %f %f%%\n", i, target_freq, measured_freq, (measured_freq - target_freq) / target_freq * 100);
+
+        vTaskDelay(pdMS_TO_TICKS(MEASURE_FFT_DELAY));
+    }
+
+err:
+    mic_enable(false); // disable mic channel
+
+    return rc;
+
+}
+
 
 void ruler_init(void)
 {

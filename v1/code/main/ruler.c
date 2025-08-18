@@ -270,12 +270,12 @@ static int create_freq_table(void)
     struct freq_table *table = g_pf_table->table;
 
     // remove backlash error
-    rc = play_single_note_by_pos(0);
+    rc = stepper_motor_action_by_pos(true, 0);
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "remove backlash, set pos error");
         goto err;
     }
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(500));
 
     /* make step len by using arithmetic progression */
     double step_len_start = FULL_STEP_LEN * 2;

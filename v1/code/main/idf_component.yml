@@ -16,3 +16,4 @@ dependencies:
   #   public: true
   espressif/esp-dsp: '*'
   espressif/tinyusb: '*'
+  espressif/button: =*

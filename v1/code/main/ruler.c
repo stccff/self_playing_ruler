@@ -556,7 +556,6 @@ err:
 
 }
 
-
 void ruler_init(void)
 {
     /* init frequncy table */

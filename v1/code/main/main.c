@@ -15,6 +15,7 @@
 #include "tinyusb_device.h"
 #include "play.h"
 #include "nvs_flash.h"
+#include "key.h"
 
 #define TAG "MAIN"
 
@@ -63,6 +64,7 @@ void app_main(void)
     i2s_driver_init();
     play_init();
     uart_init();
+    button_init();
     tinyusb_device_init();
 
     vTaskDelay(pdMS_TO_TICKS(1000));

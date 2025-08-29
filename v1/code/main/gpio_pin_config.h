@@ -48,6 +48,9 @@
 #define STEP_MOTOR_MODE2_PIN 42
 #endif
 
+// trigger GPIO for frequency measurement
+#define FREQ_TRIGG_IO 0
+
 
 
 #endif // __GPIO_PIN_CONFIG_H__

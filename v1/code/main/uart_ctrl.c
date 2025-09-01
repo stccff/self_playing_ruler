@@ -68,12 +68,13 @@ static int do_cmd_play_by_pos(char *data);
 static int do_cmd_testmagnet(char *data);
 static int do_cmd_testmagnet2(char *data);
 static int do_cmd_servo(char *data);
-static int do_cmd_servo_mid(char *data);
+static int do_cmd_servo_offset(char *data);
 static int do_cmd_stepper_motor(char *data);
 static int do_cmd_enable_midi_velocity(char *data);
 static int do_cmd_set_use_formula(char *data);
 static int do_cmd_recalculate_params(char *data);
 static int do_cmd_pitch_test(char *data);
+static int do_cmd_servo_cali(char *data);
 
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
@@ -93,12 +94,13 @@ cmd_table_t g_cmd_table[] = {
     {"magnet", do_cmd_testmagnet, "<idx> <polary>", "set e-magnet"},
     {"magnet2", do_cmd_testmagnet2, "<idx1> <polary1> <idx2> <polary2>", "set 2 e-magnets at onece"},
     {"servoangle", do_cmd_servo, "<index> <angle>", "set servo motor angle"},
-    {"servomid", do_cmd_servo_mid, "<index> <angle>", "set servo motor midle angle"},
+    {"servooffset", do_cmd_servo_offset, "<index> <angle>", "set servo motor offset angle"},
     {"stepper", do_cmd_stepper_motor, "<step>", "set stepper motor positon"},
     {"midivelocity", do_cmd_enable_midi_velocity, "<enable>", "enable or disable midi velocity, 0: disable, 1: enable"},
     {"useformula", do_cmd_set_use_formula, "<enable>", "use formula to calculate pos by freq, 0: use table, 1: use formula"},
     {"recalcparam", do_cmd_recalculate_params, "", "recalculate formula's parameters by current frequency table"},
     {"pitchtest", do_cmd_pitch_test, "", "test pitch accuracy"},
+    {"servocali", do_cmd_servo_cali, "", "calibrate strum servo's middle angle"},
 };
 
 static int do_cmd_help(char *data)
@@ -249,16 +251,16 @@ static int do_cmd_servo(char *data)
     return servo_set_angle(index, angle);
 }
 
-static int do_cmd_servo_mid(char *data)
+static int do_cmd_servo_offset(char *data)
 {
     int index = 0;
     int angle = 0;
     int rc = sscanf(data, "%d %d\n", &index, &angle);
     if (rc != 2) {
-        ESP_LOGE(TAG, "Invalid servomid command param: %s", data);
+        ESP_LOGE(TAG, "Invalid servo offset command param: %s", data);
         return ESP_ERR_INVALID_ARG;
     }
-    return servo_set_middle_angle(index, angle);
+    return servo_set_offset_angle(index, angle);
 }
 
 static int do_cmd_stepper_motor(char *data)
@@ -328,6 +330,12 @@ static int do_cmd_pitch_test(char *data)
         return rc;
     }
     ESP_LOGI(TAG, "Pitch accuracy test done");
+    return ESP_OK;
+}
+
+static int do_cmd_servo_cali(char *data)
+{
+    servo_offset_calibration();
     return ESP_OK;
 }
 

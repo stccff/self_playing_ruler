@@ -23,7 +23,7 @@ static i2s_chan_handle_t rx_handle = NULL;
 #define EXAMPLE_BIT_WIDTH   I2S_SLOT_BIT_WIDTH_24BIT
 #define EXAMPLE_SLOT_WIDTH  I2S_SLOT_BIT_WIDTH_32BIT
 #define EXAMPLE_DMA_FRAME_NUM 96
-#define EXAMPLE_DMA_DESC_NUM 6
+#define EXAMPLE_DMA_DESC_NUM 25
 // #define ONCE_READ_SAMPLE    (256)
 #define INMP441_STANDBY_CLK (1 << 14)
 #define INMP441_STANDBY_BYTES (INMP441_STANDBY_CLK / (EXAMPLE_SLOT_WIDTH * 2) * EXAMPLE_BIT_WIDTH / 8) // standby invalid data(each period has 2 slot, only 1 slot is valid in mono mode)
@@ -149,6 +149,10 @@ int read_mic_data(uint8_t *i2s_buff, float *out_buff, size_t sample_num, bool is
     // clear the dma buffer
     if (is_dma_clear) {
         clear_i2s_dma(rx_handle);
+    }
+
+    if (bytes_to_read == 0) {
+        return ESP_OK;
     }
 
     // read the mic data

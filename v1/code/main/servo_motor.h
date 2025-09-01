@@ -11,7 +11,9 @@
 
 extern void servo_motor_init(void);
 extern void servo_motor_action(int act_idx);
-extern int servo_set_angle(int servo_idx, int angle);
-extern int servo_set_middle_angle(int servo_idx, int mid_angle);
+extern int servo_set_angle(int servo_idx, float angle);
+extern int servo_get_curr_angle(int servo_idx, float *angle);
+extern int servo_set_offset_angle(int servo_idx, float offset_angle);
+extern int servo_offset_calibration(void);
 
 #endif // __SERVO_MOTOR_H

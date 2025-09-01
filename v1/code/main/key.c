@@ -5,6 +5,7 @@
 #include "iot_button.h"
 #include "gpio_pin_config.h"
 #include "ruler.h"
+#include "servo_motor.h"
 #include "key.h"
 
 #define TAG "key"
@@ -19,22 +20,34 @@ static void key_task(void *arg)
 
     while (1) {
         uint32_t b_event;
-        // 不清除进入时的位, 退出时清零, 通知值, 永久等待
+        //         不清除进入时的位, 退出时清零, 通知值, 永久等待
         if (xTaskNotifyWait(0x00, 0xFFFFFFFF, &b_event, portMAX_DELAY) == pdTRUE) {
             switch (b_event) {
             case BUTTON_SINGLE_CLICK:
                 ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
-                // do frequency measurement
+                // do servo and ruler frequency calibration
+                rc = servo_offset_calibration();
+                if (rc != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to do servo calibration");
+                    break;
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(1000));
+
                 rc = freq_table_init(true); // force init
                 if (rc != ESP_OK) {
                     ESP_LOGE(TAG, "Failed to create frequency table");
-                } else {
-                    ESP_LOGI(TAG, "Frequency table initialized successfully");
+                    break;
                 }
+                ESP_LOGI(TAG, "do calibration success!!!");
                 break;
             default:
-                ESP_LOGW(TAG, "Task: Unknown event %ld", b_event);
+                ESP_LOGW(TAG, "Task: Unknown event %lu", b_event);
                 break;
+            }
+
+            if (rc != ESP_OK) {
+                ESP_LOGE(TAG, "Key task failed, event = %lu, rc=%d", b_event, rc);
             }
             // resume button
             iot_button_resume();

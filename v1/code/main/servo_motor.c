@@ -6,6 +6,10 @@
 #include "servo_motor.h"
 #include "gpio_pin_config.h"
 #include "nvs_flash.h"
+#include <math.h>
+#include "play.h"
+#include "step_motor.h"
+#include "digital_mic.h"
 
 /* ***************************************************************************************************************** */
 /*                                               macro define                                                        */
@@ -30,6 +34,14 @@
 
 #define SERVO_SPEED 0.12 // s/60degree
 
+#define SAMPLE_RATE 8000 // Hz
+#define MAX_CALIBRATE_TIMES 25
+#define ONECE_SAMPLE_TIMES 3
+#define CALI_SAMPLE_TIME 300 // ms
+#define CALI_SAMPLE_NUM (CALI_SAMPLE_TIME * SAMPLE_RATE / 1000) // TODO: if change, make sure dma buffer is enough
+#define I2S_BIT_WIDTH 24 // TODO: do not define again
+#define THRESHOLD_DELTA_PERCENTAGE 0.015 // 1.5%
+
 #define STORAGE_NAMESPACE "servo_motor"
 /* ***************************************************************************************************************** */
 /*                                               struct define                                                       */
@@ -39,9 +51,9 @@ typedef struct {
         char *name;
         int output_gpio;
         int polarity;
-        int init_angle;
+        float init_angle;
     } const cfg;
-    int mid_angle;
+    float offset_angle;
     mcpwm_cmpr_handle_t pwm_handle;
     int curr_angle;
 } servo_t;
@@ -60,7 +72,7 @@ static servo_t g_servo[] = {
             .init_angle = SERVO_STRUM_ANGLE,
         },
         .pwm_handle = NULL,
-        .mid_angle = 0,
+        .offset_angle = 0,
         .curr_angle = 0,
     },
 #ifdef CONFIG_HW_PROTOTYPE
@@ -72,7 +84,7 @@ static servo_t g_servo[] = {
             .init_angle = SERVO_FRET_UP_ANGLE,
         },
         .pwm_handle = NULL,
-        .mid_angle = 0xffffffff,
+        .offset_angle = 0xfffffffg,
         .curr_angle = SERVO_FRET_UP_ANGLE,
     },
 #endif
@@ -80,7 +92,7 @@ static servo_t g_servo[] = {
 
 
 
-static inline uint32_t angle_to_compare(int angle)
+static inline uint32_t angle_to_compare(float angle)
 {
     return (angle - SERVO_MIN_DEGREE) * (SERVO_MAX_PULSEWIDTH_US - SERVO_MIN_PULSEWIDTH_US) / (SERVO_MAX_DEGREE - SERVO_MIN_DEGREE) + SERVO_MIN_PULSEWIDTH_US;
 }
@@ -167,28 +179,28 @@ void servo_motor_action(int act_idx)
     return;
 }
 
-static int param_check(int servo_idx, int angle)
+static int param_check(int servo_idx, float angle)
 {
     if (servo_idx < 0 || servo_idx >= sizeof(g_servo) / sizeof(g_servo[0])) {
         ESP_LOGE(TAG, "Invalid servo index: %d", servo_idx);
         return ESP_ERR_INVALID_ARG;
     }
     if (angle < SERVO_MIN_DEGREE || angle > SERVO_MAX_DEGREE) {
-        ESP_LOGE(TAG, "Invalid servo angle: %d", angle);
+        ESP_LOGE(TAG, "Invalid servo angle: %f", angle);
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
 }
 
-int servo_set_angle(int servo_idx, int angle)
+int servo_set_angle(int servo_idx, float angle)
 {
     int rc = param_check(servo_idx, angle);
     if (rc != ESP_OK) {
         return rc;
     }
-    int real_angle = angle + g_servo[servo_idx].mid_angle;
+    float real_angle = angle + g_servo[servo_idx].offset_angle;
     if (real_angle < SERVO_MIN_DEGREE || real_angle > SERVO_MAX_DEGREE) {
-        ESP_LOGE(TAG, "angle %d + middle %d = %d, is out of range [%d, %d]", angle, g_servo[servo_idx].mid_angle, real_angle, SERVO_MIN_DEGREE, SERVO_MAX_DEGREE);
+        ESP_LOGE(TAG, "angle %f + offset %f = %f, is out of range [%d, %d]", angle, g_servo[servo_idx].offset_angle, real_angle, SERVO_MIN_DEGREE, SERVO_MAX_DEGREE);
         return ESP_ERR_INVALID_ARG;
     }
     ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo[servo_idx].pwm_handle, angle_to_compare(real_angle)));
@@ -197,9 +209,24 @@ int servo_set_angle(int servo_idx, int angle)
     return ESP_OK;
 }
 
+
+int servo_get_curr_angle(int servo_idx, float *angle)
+{
+    int rc = param_check(servo_idx, 0);
+    if (rc != ESP_OK) {
+        return rc;
+    }
+    if (angle == NULL) {
+        ESP_LOGE(TAG, "Invalid angle pointer");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *angle = g_servo[servo_idx].curr_angle;
+    return ESP_OK;
+}
+
 void servo_motor_init(void)
 {
-    /* get middle angle from NVS */
+    /* get offset angle from NVS */
     // Open
     nvs_handle_t nvs_handle;
     int rc = nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, &nvs_handle);
@@ -207,22 +234,22 @@ void servo_motor_init(void)
         ESP_LOGE(TAG, "Error (%s) opening NVS handle, use default angle 0", esp_err_to_name(rc));
     } else {
         for (int i = 0; i < sizeof(g_servo) / sizeof(g_servo[0]); i++) {
-            // check if the middle angle is exists
+            // check if the offset angle is exists
             int32_t angle = 0;
             rc = nvs_get_i32(nvs_handle, g_servo->cfg.name, &angle);
             if (rc != ESP_OK) {
                 if (rc == ESP_ERR_NVS_NOT_FOUND) {
                     /* nvs not exist */
                     rc = ESP_OK;
-                    ESP_LOGW(TAG, "servo middle angle not found in NVS, use default angle 0");
+                    ESP_LOGW(TAG, "servo offset angle not found in NVS, use default angle 0");
                 } else {
                     // Other error
                     ESP_LOGE(TAG, "Error (%s) reading NVS, use default angle 0", esp_err_to_name(rc));
                 }
             } else {
                 // nvs exist
-                g_servo[i].mid_angle = angle;
-                ESP_LOGI(TAG, "g_servo[%d].mid_angle = %d, loaded from NVS", i, g_servo[i].mid_angle);
+                g_servo[i].offset_angle = angle;
+                ESP_LOGI(TAG, "g_servo[%d].offset_angle = %f, loaded from NVS", i, g_servo[i].offset_angle);
             }
         }
     }
@@ -241,14 +268,14 @@ void servo_motor_init(void)
     return;
 }
 
-int servo_set_middle_angle(int servo_idx, int mid_angle)
+int servo_set_offset_angle(int servo_idx, float offset_angle)
 {
-    int rc = param_check(servo_idx, mid_angle);
+    int rc = param_check(servo_idx, offset_angle);
     if (rc != ESP_OK) {
         return rc;
     }
     /* set */
-    g_servo[servo_idx].mid_angle = mid_angle;
+    g_servo[servo_idx].offset_angle = offset_angle;
     servo_set_angle(servo_idx, g_servo[servo_idx].curr_angle); // reset positon
 
 
@@ -259,7 +286,7 @@ int servo_set_middle_angle(int servo_idx, int mid_angle)
         ESP_LOGE(TAG, "Error (%s) opening NVS handle", esp_err_to_name(rc));
     } else {
         for (int i = 0; i < sizeof(g_servo) / sizeof(g_servo[0]); i++) {
-            rc = nvs_set_i32(nvs_handle, g_servo->cfg.name, (int32_t)mid_angle);
+            rc = nvs_set_i32(nvs_handle, g_servo->cfg.name, (int32_t)round(offset_angle));
             if (rc != ESP_OK) {
                 ESP_LOGE(TAG, "Error (%s) writing NVS, It is only effective before reboot", esp_err_to_name(rc));
             }
@@ -268,7 +295,142 @@ int servo_set_middle_angle(int servo_idx, int mid_angle)
     nvs_close(nvs_handle);
 
 
-    ESP_LOGI(TAG, "Set servo[%d] middle angle to %d", servo_idx, mid_angle);
+    ESP_LOGI(TAG, "Set servo[%d] offset angle to %f, and %d to nvs", servo_idx, offset_angle, (int)round(offset_angle));
 
     return ESP_OK;
+}
+
+/**
+ * @brief find the max peak in the data, and calculate the latency
+ *
+ * @param data
+ * @param len
+ * @return float
+ */
+static float calc_latency(float *data, size_t len)
+{
+    int idx[3] = {-1, -1, -1};
+    float val[3] = {0, 0, 0}; // max--min
+
+    for (size_t i = 0; i < len; i++) {
+        float abs_val = fabs(data[i]);
+        if (abs_val > val[0]) {
+            val[2] = val[1]; idx[2] = idx[1];
+            val[1] = val[0]; idx[1] = idx[0];
+            val[0] = abs_val; idx[0] = i;
+        } else if (abs_val > val[1]) {
+            val[2] = val[1]; idx[2] = idx[1];
+            val[1] = abs_val; idx[1] = i;
+        } else if (abs_val > val[2]) {
+            val[2] = abs_val; idx[2] = i;
+        }
+    }
+
+    // printf("Top 3 indices: %d, %d, %d\n", idx[0], idx[1], idx[2]);
+    int index = round((idx[0] + idx[1] + idx[2]) / 3.0);
+
+    return (float)index / SAMPLE_RATE;
+}
+
+
+int servo_offset_calibration(void)
+{
+    int rc = ESP_OK;
+    rc = servo_set_offset_angle(0, 0); // reset offset before do calibration
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "servo calibration: set servo offset angle fail");
+        return rc;
+    }
+
+    // enable mic
+    mic_reconfig_sample_rate(SAMPLE_RATE);
+    mic_enable(true);
+
+
+    rc = play_single_note_by_pos(MAX_STEP / 2); // move to middle pos
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "servo calibration: move to middle pos fail");
+        return rc;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    float angle = 0;
+    servo_get_curr_angle(0, &angle);
+    int init_dir = (angle < 0) ? 1 : -1;
+
+    uint8_t *i2s_buff = (uint8_t *)malloc(CALI_SAMPLE_NUM * I2S_BIT_WIDTH / 8);
+    float *out_buff = (float *)malloc(CALI_SAMPLE_NUM * sizeof(float));
+    float latency[ONECE_SAMPLE_TIMES*2] = {0};
+    int counter = 0;
+    float offset_angle = 0;
+    int cali_num = 0;
+
+    for (cali_num = 0; cali_num < MAX_CALIBRATE_TIMES; cali_num++) {
+        for (int i = 0; i < ONECE_SAMPLE_TIMES*2; i++) {
+            // clear mic buffer
+            rc = read_mic_data(NULL, NULL, 0, true);
+            if (rc != ESP_OK) {
+                ESP_LOGE(TAG, "clear mic buff fail, with error: %d", rc);
+                goto err;
+            }
+            // strum
+            rc = play_single_note_by_pos(MAX_STEP / 2);
+            if (rc != ESP_OK) {
+                ESP_LOGE(TAG, "play by pos fail");
+                goto err;
+            }
+            // record
+            rc = read_mic_data(i2s_buff, out_buff, CALI_SAMPLE_NUM, false);
+            if (rc != ESP_OK) {
+                ESP_LOGE(TAG, "read mic data fail, with error: %d", rc);
+                goto err;
+            }
+            // calculate latency of strum
+            latency[i] = calc_latency(out_buff, CALI_SAMPLE_NUM);
+            vTaskDelay(pdMS_TO_TICKS(10)); // release cpu
+        }
+
+
+        float delta = 0;
+        float sum = 0;
+        for (int i = 0; i < ONECE_SAMPLE_TIMES; i++) {
+            delta += latency[i*2] - latency[i*2 + 1];
+            sum += latency[i*2] + latency[i*2 + 1];
+        }
+        float percent = delta / sum;
+        ESP_LOGI(TAG, "servo calibration: latency[0] = %f, latency[1] = %f, percent = %f", latency[0], latency[1], percent);
+        // If error is small enough and continuous 3 times, then finish calibration
+        if (fabs(percent) <= THRESHOLD_DELTA_PERCENTAGE) {
+            counter++;
+            if (counter >= 3) {
+                ESP_LOGI(TAG, "servo calibration success, %d times, offset angle = %d", cali_num, (int)round(offset_angle));
+                break;
+            }
+            continue;
+        }
+
+        counter = 0; // reset counter
+
+        // do compensation
+        offset_angle += init_dir * percent * 20; // this is a proportional control, 20 is a gain
+        rc = servo_set_offset_angle(0, offset_angle);
+        if (rc != ESP_OK) {
+            ESP_LOGE(TAG, "servo calibration: set servo offset angle fail");
+            (void)servo_set_offset_angle(0, 0);
+            goto err;
+        }
+    }
+
+    if (cali_num >= MAX_CALIBRATE_TIMES) {
+        ESP_LOGE(TAG, "servo calibration: fail, reach max calibration times: %d", MAX_CALIBRATE_TIMES);
+        rc = ESP_FAIL;
+        (void)servo_set_offset_angle(0, 0);
+        goto err;
+    }
+
+err:
+    mic_enable(false); // disable mic channel
+
+    return rc;
 }

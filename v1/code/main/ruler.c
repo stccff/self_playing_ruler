@@ -270,7 +270,7 @@ static int create_freq_table(void)
     struct freq_table *table = g_pf_table->table;
 
     // remove backlash error
-    rc = stepper_motor_action_by_pos(true, 0);
+    rc = play_single_note_by_pos(0); // play func contains magnet unlock
     if (rc != ESP_OK) {
         ESP_LOGE(TAG, "remove backlash, set pos error");
         goto err;

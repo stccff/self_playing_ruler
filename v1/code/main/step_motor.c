@@ -72,7 +72,7 @@ static int convert_pos_to_step(int pos)
  * @param pos absolute step of stepper motor
  * @return int
  */
-int stepper_motor_action_by_pos(bool is_sync, int pos) // TODO: why memory error occurred in rmt??? when I use async mode
+int stepper_motor_action_by_pos(bool is_sync, int pos) // TODO: why memory error occurred in rmt??? when I use async mode. Maybe because of fpu in ISR?
 {
 #ifdef CONFIG_DEBUG_PRINT
         int64_t start = esp_timer_get_time();

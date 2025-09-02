@@ -492,9 +492,6 @@ err:
     return rc;
 }
 
-
-// static int test_midi_freq() // TODO:
-
 int pitch_accuracy_test(void)
 {
     int rc = ESP_OK;

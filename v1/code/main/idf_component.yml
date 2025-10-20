@@ -17,3 +17,4 @@ dependencies:
   espressif/esp-dsp: '*'
   espressif/tinyusb: '*'
   espressif/button: =*
+  espressif/led_strip: '*'

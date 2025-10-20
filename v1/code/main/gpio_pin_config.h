@@ -51,6 +51,9 @@
 // trigger GPIO for frequency measurement
 #define FREQ_TRIGG_IO 0
 
+// RGB LED GPIO
+#define LED_STRIP_GPIO_PIN  48
+
 
 
 #endif // __GPIO_PIN_CONFIG_H__

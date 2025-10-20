@@ -6,6 +6,7 @@
 #include "gpio_pin_config.h"
 #include "ruler.h"
 #include "servo_motor.h"
+#include "rgb_led.h"
 #include "key.h"
 
 #define TAG "key"
@@ -13,6 +14,41 @@
 
 
 TaskHandle_t task_handle = NULL;
+
+int do_calibraion(void)
+{
+    int rc = ESP_OK;
+
+    rc = servo_offset_calibration();
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to do servo calibration");
+        goto err;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    rc = freq_table_init(true); // force init
+    if (rc != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create frequency table");
+        goto err;
+    }
+
+    ESP_LOGI(TAG, "do calibration success!!!");
+
+err:
+    uint16_t hue;
+    hue = (rc == ESP_OK) ? 120 : 0; // green for success, red for error
+    /* led green blink 3 times for calibration status */
+    for (int i=0; i<3 ; i++) {
+        devkitc_rgb_led_set_hsv(hue, 100, 100); // green
+        vTaskDelay(pdMS_TO_TICKS(300));
+        devkitc_rgb_led_set_hsv(hue, 100, 0);
+        vTaskDelay(pdMS_TO_TICKS(300));
+    }
+
+    return rc;
+}
+
 
 static void key_task(void *arg)
 {
@@ -25,21 +61,7 @@ static void key_task(void *arg)
             switch (b_event) {
             case BUTTON_SINGLE_CLICK:
                 ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
-                // do servo and ruler frequency calibration
-                rc = servo_offset_calibration();
-                if (rc != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to do servo calibration");
-                    break;
-                }
-
-                vTaskDelay(pdMS_TO_TICKS(1000));
-
-                rc = freq_table_init(true); // force init
-                if (rc != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to create frequency table");
-                    break;
-                }
-                ESP_LOGI(TAG, "do calibration success!!!");
+                rc = do_calibraion(); // do servo and ruler frequency calibration
                 break;
             default:
                 ESP_LOGW(TAG, "Task: Unknown event %lu", b_event);

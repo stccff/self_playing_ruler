@@ -16,6 +16,7 @@
 #include "play.h"
 #include "nvs_flash.h"
 #include "key.h"
+#include "rgb_led.h"
 
 #define TAG "MAIN"
 
@@ -66,6 +67,7 @@ void app_main(void)
     uart_init();
     button_init();
     tinyusb_device_init();
+    rgb_led_init();
 
     vTaskDelay(pdMS_TO_TICKS(1000));
 

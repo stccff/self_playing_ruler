@@ -17,6 +17,7 @@
 #include "h_bridge.h"
 #include "play.h"
 #include "tinyusb_device.h"
+#include "rgb_led.h"
 
 // uart configurations
 #define ECHO_TEST_TXD (43)
@@ -75,7 +76,7 @@ static int do_cmd_set_use_formula(char *data);
 static int do_cmd_recalculate_params(char *data);
 static int do_cmd_pitch_test(char *data);
 static int do_cmd_servo_cali(char *data);
-
+static int do_cmd_led_hsv(char *data);
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
 /* ***************************************************************************************************************** */
@@ -101,6 +102,7 @@ cmd_table_t g_cmd_table[] = {
     {"recalcparam", do_cmd_recalculate_params, "", "recalculate formula's parameters by current frequency table"},
     {"pitchtest", do_cmd_pitch_test, "", "test pitch accuracy"},
     {"servocali", do_cmd_servo_cali, "", "calibrate strum servo's middle angle"},
+    {"ledhsv", do_cmd_led_hsv, "", "test rgb led by hsv"},
 };
 
 static int do_cmd_help(char *data)
@@ -337,6 +339,23 @@ static int do_cmd_servo_cali(char *data)
 {
     servo_offset_calibration();
     return ESP_OK;
+}
+
+static int do_cmd_led_hsv(char *data)
+{
+    int rc = ESP_OK;
+    int h;
+    float s, v;
+
+    rc = sscanf(data, "%d %f %f\n", &h, &s, &v);
+    if (rc != 3) {
+        ESP_LOGE(TAG, "Invalid ledhsv command param: %s", data);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    rc = devkitc_rgb_led_set_hsv(h, s, v);
+
+    return rc;
 }
 
 

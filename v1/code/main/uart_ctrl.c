@@ -77,6 +77,7 @@ static int do_cmd_recalculate_params(char *data);
 static int do_cmd_pitch_test(char *data);
 static int do_cmd_servo_cali(char *data);
 static int do_cmd_led_hsv(char *data);
+static int do_cmd_print_compile_time(char *data);
 /* ***************************************************************************************************************** */
 /*                                              global variable                                                      */
 /* ***************************************************************************************************************** */
@@ -102,7 +103,8 @@ cmd_table_t g_cmd_table[] = {
     {"recalcparam", do_cmd_recalculate_params, "", "recalculate formula's parameters by current frequency table"},
     {"pitchtest", do_cmd_pitch_test, "", "test pitch accuracy"},
     {"servocali", do_cmd_servo_cali, "", "calibrate strum servo's middle angle"},
-    {"ledhsv", do_cmd_led_hsv, "", "test rgb led by hsv"},
+    {"ledhsv", do_cmd_led_hsv, "<h(0~360)> <s(0~1.0)> <v(0~1.0)>", "test rgb led by hsv"},
+    {"compiletime", do_cmd_print_compile_time, "", "print the code compile time"},
 };
 
 static int do_cmd_help(char *data)
@@ -356,6 +358,12 @@ static int do_cmd_led_hsv(char *data)
     rc = devkitc_rgb_led_set_hsv(h, s, v);
 
     return rc;
+}
+
+static int do_cmd_print_compile_time(char *data)
+{
+    ESP_LOGI(TAG, "Compile time: %s %s", __DATE__, __TIME__);
+    return ESP_OK;
 }
 
 

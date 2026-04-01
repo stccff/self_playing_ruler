@@ -235,9 +235,9 @@ int step_motor_action_by_len(double len)
 
 /**
  * @brief stepper motor act as the input freq
- * 
- * @param freq 
- * @return int step numbers 
+ *
+ * @param freq
+ * @return int step numbers
  */
 int step_motor_action(double freq)
 {
@@ -323,7 +323,7 @@ void step_motor_init(void)
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));
     ESP_ERROR_CHECK(rmt_tx_wait_all_done(g_motor_chan, -1));
     vTaskDelay(10 / portTICK_PERIOD_MS);
-    
+
     gpio_set_level(STEP_MOTOR_GPIO_DIR, STEP_MOTOR_SPIN_DIR_COUNTERCLOCKWISE);
     g_tx_config.loop_count = MAX_STEP + 10 * POW(2, MODE);
     ESP_ERROR_CHECK(rmt_transmit(g_motor_chan, g_uniform_motor_encoder, &speed, sizeof(speed), &g_tx_config));

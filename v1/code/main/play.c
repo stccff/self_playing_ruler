@@ -51,7 +51,7 @@ static bool IRAM_ATTR timer_strum_cb(gptimer_handle_t timer, const gptimer_alarm
     gptimer_stop(timer);
     alarm_time = esp_timer_get_time();
     // strum
-    servo_motor_action(3);
+    servo_strum_iram_without_fpu();
 
     // xQueueSendFromISR(queue, &ele, &high_task_awoken);
     // return whether we need to yield at the end of ISR

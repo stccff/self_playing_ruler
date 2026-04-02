@@ -15,5 +15,6 @@ extern int servo_set_angle(int servo_idx, float angle);
 extern int servo_get_curr_angle(int servo_idx, float *angle);
 extern int servo_set_offset_angle(int servo_idx, float offset_angle);
 extern int servo_offset_calibration(void);
+extern void servo_strum_iram_without_fpu(void);
 
 #endif // __SERVO_MOTOR_H

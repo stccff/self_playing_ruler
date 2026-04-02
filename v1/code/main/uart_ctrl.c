@@ -18,6 +18,7 @@
 #include "play.h"
 #include "tinyusb_device.h"
 #include "rgb_led.h"
+#include "esp_app_desc.h"
 
 // uart configurations
 #define ECHO_TEST_TXD (43)
@@ -362,10 +363,15 @@ static int do_cmd_led_hsv(char *data)
 
 static int do_cmd_print_compile_time(char *data)
 {
-    ESP_LOGI(TAG, "Compile time: %s %s", __DATE__, __TIME__);
-    return ESP_OK;
-}
+    const esp_app_desc_t *app_desc = esp_app_get_description();
 
+    ESP_LOGI(TAG, "Firmware Compile time: %s %s", app_desc->date, app_desc->time);
+    ESP_LOGI(TAG, "Firmware Version: %s", app_desc->version);
+    ESP_LOGI(TAG, "IDF Version: %s", app_desc->idf_ver);
+
+    return ESP_OK;
+
+}
 
 /**
  * @brief

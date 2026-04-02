@@ -54,6 +54,7 @@ typedef struct {
         float init_angle;
     } const cfg;
     float offset_angle;
+    int offset_angle_r;
     mcpwm_cmpr_handle_t pwm_handle;
     int curr_angle;
 } servo_t;
@@ -73,6 +74,7 @@ static servo_t g_servo[] = {
         },
         .pwm_handle = NULL,
         .offset_angle = 0,
+        .offset_angle_r = 0,
         .curr_angle = 0,
     },
 #ifdef CONFIG_HW_PROTOTYPE
@@ -85,6 +87,7 @@ static servo_t g_servo[] = {
         },
         .pwm_handle = NULL,
         .offset_angle = 0xfffffffg,
+        .offset_angle_r = 0xfffffffg,
         .curr_angle = SERVO_FRET_UP_ANGLE,
     },
 #endif
@@ -149,6 +152,28 @@ mcpwm_cmpr_handle_t pwm_create(int output_gpio)
     return comparator;
 }
 
+/**
+ * @brief this is an IRAM function and not a common API, it is only used for strum action callback function,
+ *          which has a high requirement for real-time performance.
+ *
+ */
+void IRAM_ATTR servo_strum_iram_without_fpu(void)
+{
+    /* Strum */
+    int angle = 0;
+    if (g_servo[0].curr_angle >= 0) {
+        angle = -SERVO_STRUM_ANGLE;
+    } else {
+        angle = SERVO_STRUM_ANGLE;
+    }
+
+    int real_angle = angle + g_servo[0].offset_angle_r;
+    ESP_ERROR_CHECK(real_angle < SERVO_MIN_DEGREE || real_angle > SERVO_MAX_DEGREE);
+    uint32_t cmp_val = (real_angle - SERVO_MIN_DEGREE) * (SERVO_MAX_PULSEWIDTH_US - SERVO_MIN_PULSEWIDTH_US) /
+                        (SERVO_MAX_DEGREE - SERVO_MIN_DEGREE) + SERVO_MIN_PULSEWIDTH_US;
+    ESP_ERROR_CHECK(mcpwm_comparator_set_compare_value(g_servo[0].pwm_handle, cmp_val));
+    g_servo[0].curr_angle = angle;
+}
 
 void servo_motor_action(int act_idx)
 {
@@ -249,6 +274,7 @@ void servo_motor_init(void)
             } else {
                 // nvs exist
                 g_servo[i].offset_angle = angle;
+                g_servo[i].offset_angle_r = round(angle);
                 ESP_LOGI(TAG, "g_servo[%d].offset_angle = %f, loaded from NVS", i, g_servo[i].offset_angle);
             }
         }
@@ -276,6 +302,7 @@ int servo_set_offset_angle(int servo_idx, float offset_angle)
     }
     /* set */
     g_servo[servo_idx].offset_angle = offset_angle;
+    g_servo[servo_idx].offset_angle_r = round(offset_angle);
     servo_set_angle(servo_idx, g_servo[servo_idx].curr_angle); // reset positon
 
 

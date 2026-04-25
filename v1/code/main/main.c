@@ -10,6 +10,7 @@
 #include "step_motor.h"
 #include "ruler.h"
 #include "uart_ctrl.h"
+#include "terminal.h"
 #include "digital_mic.h"
 #include "h_bridge.h"
 #include "tinyusb_device.h"
@@ -64,6 +65,7 @@ void app_main(void)
     ruler_init();
     i2s_driver_init();
     play_init();
+    terminal_init(8); // terminal setup — must be before uart_init()
     uart_init();
     button_init();
     tinyusb_device_init();

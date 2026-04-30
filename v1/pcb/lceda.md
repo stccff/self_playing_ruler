@@ -1,0 +1,1 @@
+ https://oshwhub.com/stccff/self_play_ruler

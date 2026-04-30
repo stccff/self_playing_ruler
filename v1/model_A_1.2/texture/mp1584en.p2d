@@ -1,0 +1,21 @@
+
+color texture "decal_image_tex" "c:\develop\my_workspace\self_playing_ruler\v1\model_a_1.2\texture\mp1584en.png" 
+
+,
+	 "swP2D"  on ,
+	 "useUnderlyingAppearance"  off ,
+	 "diffuse_factor"  1 ,
+	 "specular_factor"  1 ,
+	 "specular_color"  1 1 1 ,
+	 "roughness"  0.01 ,
+	 "reflectivity"  0 ,
+	 "mtl_ior"  1 ,
+	 "transparency"  0 ,
+	 "blurryReflections"  off ,
+	 "doubleSided"  off ,
+	 "refractionRoughness"  0 ,
+	 "luminousIntensity"  0 ,
+	 "initTextureWidth"  0.022225 ,
+	 "initTextureHeight"  0.0171843 ,
+	 "masking_mode"  0 ,
+	 "invert_mask"  off 

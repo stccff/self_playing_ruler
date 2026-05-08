@@ -440,7 +440,7 @@ static int do_cmd_set(char *data)
 #define POLARITY_NEGATIVE -1
 
 /**
- * @brief Play a single note by simplified (jianpu) notation.
+ * @brief Play a single note by numbered musical notation.
  */
 static int do_cmd_play_by_note(char *data)
 {

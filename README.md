@@ -15,6 +15,7 @@
 - 🎵 [A Note on Timbre](#a-note-on-timbre)
 - 📂 [Repository Structure](#repository-structure)
 - 🛠️ [Hardware at a Glance](#hardware-at-a-glance)
+- ⚙️ [PCB Configuration Options](#pcb-configuration-options)
 - 🚀 [Getting Started](#getting-started)
   - [Build Prerequisites](#build-prerequisites)
   - [Serial Terminal Commands](#serial-terminal-commands)
@@ -86,8 +87,20 @@ See `v1/bom_zh.xlsx` for the detailed bill of materials.
 > ⚠️ **Important Notes:**
 > - The ESP32-S3 DevKitC is powered via USB. The 12V DC input supplies the motors and drivers only — the device will not function without USB connected.
 > - If the **SGM2521YS8** power-switch IC is not populated on the PCB, do **not** disconnect USB while 12V power remains connected. Doing so cuts power to the ESP32, leaving the DRV8825 control pins floating and the stepper motor in an abnormal state that causes overheating.
+> - Set the **SG90 servo supply voltage to 6V**. The firmware's strum timing was calibrated at 6V; a different voltage will throw off the timing.
+> - Set the **DRV8825 current limit** appropriately. Too low and the stepper motor will stall; too high and it will overheat.
 
 <a id="getting-started"></a>
+<a id="pcb-configuration-options"></a>
+## ⚙️ PCB Configuration Options
+
+![PCB jumpers and options](picture/pcb_info.jpg)
+
+- **Stepper driver:** DRV8825 (default) or A4988 — solder the jumper pads when using A4988.
+- **Servo voltage regulator:** MP1845EN (default) or Mini360.
+- **Power-switch IC (SGM2521YS8):** Optional — prevents the stepper driver from entering an abnormal state when the MCU loses power (see Important Notes above).
+- **Servo voltage sense resistor:** Optional — enables ADC-based voltage monitoring from the dev board, useful for tuning servo voltage without a multimeter.
+
 ## 🚀 Getting Started
 
 1. **Print the parts:** STL files are in `v1/model_A_1.2/output/`.
